@@ -1,0 +1,251 @@
+{
+  "file": "연수운영계획_샘플.hwpx",
+  "answers": [
+    {
+      "answer_id": "H01",
+      "value": "박서연",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "label": "담당자"
+      }
+    },
+    {
+      "answer_id": "H02",
+      "value": "031-000-0001",
+      "category": "전화",
+      "tier": "확실",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "label": "연락처"
+      }
+    },
+    {
+      "answer_id": "H03",
+      "value": "김민수",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 1,
+        "col": 0,
+        "header": "강사"
+      }
+    },
+    {
+      "answer_id": "H04",
+      "value": "예시대학교",
+      "category": "소속",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 1,
+        "col": 1,
+        "header": "소속"
+      }
+    },
+    {
+      "answer_id": "H05",
+      "value": "교수",
+      "category": "직위",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 1,
+        "col": 2,
+        "header": "직위"
+      }
+    },
+    {
+      "answer_id": "H06",
+      "value": "010-0000-0001",
+      "category": "전화",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 1,
+        "col": 3,
+        "header": "연락처"
+      }
+    },
+    {
+      "answer_id": "H07",
+      "value": "이도윤",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 2,
+        "col": 0,
+        "header": "강사"
+      }
+    },
+    {
+      "answer_id": "H08",
+      "value": "가상교육지원청",
+      "category": "소속",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 2,
+        "col": 1,
+        "header": "소속"
+      }
+    },
+    {
+      "answer_id": "H09",
+      "value": "장학사",
+      "category": "직위",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 2,
+        "col": 2,
+        "header": "직위"
+      }
+    },
+    {
+      "answer_id": "H10",
+      "value": "010-0000-0002",
+      "category": "전화",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 2,
+        "col": 3,
+        "header": "연락처"
+      }
+    },
+    {
+      "answer_id": "H11",
+      "value": "정하람",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 3,
+        "col": 0,
+        "header": "강사"
+      }
+    },
+    {
+      "answer_id": "H12",
+      "value": "샘플초등학교",
+      "category": "소속",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 3,
+        "col": 1,
+        "header": "소속"
+      }
+    },
+    {
+      "answer_id": "H13",
+      "value": "교사",
+      "category": "직위",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 3,
+        "col": 2,
+        "header": "직위"
+      }
+    },
+    {
+      "answer_id": "H14",
+      "value": "010-0000-0003",
+      "category": "전화",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 3,
+        "col": 3,
+        "header": "연락처"
+      }
+    },
+    {
+      "answer_id": "H15",
+      "value": "김민수",
+      "category": "이름",
+      "tier": "검토",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "note": "본문 반복"
+      }
+    },
+    {
+      "answer_id": "H16",
+      "value": "이도윤",
+      "category": "이름",
+      "tier": "검토",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "note": "본문 반복, 호칭 붙음"
+      }
+    },
+    {
+      "answer_id": "H17",
+      "value": "정하람",
+      "category": "이름",
+      "tier": "검토",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "note": "본문 반복"
+      }
+    },
+    {
+      "answer_id": "H18",
+      "value": "박서연",
+      "category": "이름",
+      "tier": "검토",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "note": "본문 반복"
+      }
+    },
+    {
+      "answer_id": "H19",
+      "value": "정하람",
+      "category": "이름",
+      "tier": "검토",
+      "location": {
+        "kind": "comment",
+        "note": "한글 메모"
+      }
+    }
+  ],
+  "must_not_detect": [
+    {
+      "answer_id": "HN01",
+      "value": "미정",
+      "reason": "예외 목록(강사 열의 미정)",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 4,
+        "col": 0,
+        "header": "강사"
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "privacy-operator-engine",
+  "private": true,
+  "description": "kordoc 문서 읽기 엔진. Python SDK가 node로 dist/cli.js를 띄워 쓴다.",
+  "dependencies": {
+    "kordoc": "4.24.50"
+  }
+}

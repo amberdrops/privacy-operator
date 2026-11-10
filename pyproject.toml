@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77"]  # license = "AGPL-3.0-only" 표기(PEP 639)
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "privacy-operator"
+version = "0.9.0"
+description = "개인정보작전실. 문서 속 개인정보를 로컬에서 가명처리하고 복원한다."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+dependencies = [
+    "pyside6",
+    "pymupdf",
+    "openpyxl",
+    "cryptography",
+    "keyring",  # '이 컴퓨터에서 기억하기': Windows 자격 증명 관리자
+    "kordoc==0.2.1",  # 엔진(npm kordoc)은 engine/에 따로 설치한다
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-qt",
+    "pillow",  # tools/assets.py: Flow 에셋 초록 배경 지우기(프로그램 실행에는 쓰지 않음)
+    "numpy",
+    "imageio[ffmpeg]",  # tools/assets.py: 반짝임 영상 → WebP
+    "pyinstaller",  # tools/build_installer.py: 설치판 묶기(Inno Setup 6은 따로 설치)
+]
+
+[project.scripts]
+privacy-operator = "privacy_operator.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+privacy_operator = ["ui/themes/*/theme.json", "ui/voice/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

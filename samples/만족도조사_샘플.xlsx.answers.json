@@ -1,0 +1,260 @@
+{
+  "file": "만족도조사_샘플.xlsx",
+  "answers": [
+    {
+      "answer_id": "X01a",
+      "value": "한가온",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 1,
+        "col": 0,
+        "header": "응답자"
+      }
+    },
+    {
+      "answer_id": "X01b",
+      "value": "gaon.han@example.kr",
+      "category": "이메일",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 1,
+        "col": 1,
+        "header": "이메일"
+      }
+    },
+    {
+      "answer_id": "X01c",
+      "value": "가상중학교",
+      "category": "소속",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 1,
+        "col": 2,
+        "header": "소속"
+      }
+    },
+    {
+      "answer_id": "X02a",
+      "value": "오세린",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 2,
+        "col": 0,
+        "header": "응답자"
+      }
+    },
+    {
+      "answer_id": "X02b",
+      "value": "serin.oh@example.kr",
+      "category": "이메일",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 2,
+        "col": 1,
+        "header": "이메일"
+      }
+    },
+    {
+      "answer_id": "X02c",
+      "value": "샘플고등학교",
+      "category": "소속",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 2,
+        "col": 2,
+        "header": "소속"
+      }
+    },
+    {
+      "answer_id": "X03a",
+      "value": "유다온",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 3,
+        "col": 0,
+        "header": "응답자"
+      }
+    },
+    {
+      "answer_id": "X03b",
+      "value": "daon.yu@example.com",
+      "category": "이메일",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 3,
+        "col": 1,
+        "header": "이메일"
+      }
+    },
+    {
+      "answer_id": "X03c",
+      "value": "예시교육지원청",
+      "category": "소속",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 3,
+        "col": 2,
+        "header": "소속"
+      }
+    },
+    {
+      "answer_id": "X04a",
+      "value": "남궁별",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 4,
+        "col": 0,
+        "header": "응답자"
+      }
+    },
+    {
+      "answer_id": "X04b",
+      "value": "byeol.namgung@example.kr",
+      "category": "이메일",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 4,
+        "col": 1,
+        "header": "이메일"
+      }
+    },
+    {
+      "answer_id": "X04c",
+      "value": "가상중학교",
+      "category": "소속",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 4,
+        "col": 2,
+        "header": "소속"
+      }
+    },
+    {
+      "answer_id": "X05a",
+      "value": "서이현",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 5,
+        "col": 0,
+        "header": "응답자"
+      }
+    },
+    {
+      "answer_id": "X05b",
+      "value": "ihyeon.seo@example.com",
+      "category": "이메일",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 5,
+        "col": 1,
+        "header": "이메일"
+      }
+    },
+    {
+      "answer_id": "X05c",
+      "value": "샘플초등학교",
+      "category": "소속",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 5,
+        "col": 2,
+        "header": "소속"
+      }
+    },
+    {
+      "answer_id": "X20",
+      "value": "예시교육지원청 회계팀 7급",
+      "category": "간접식별",
+      "tier": "참고",
+      "location": {
+        "kind": "table",
+        "sheet": "응답",
+        "row": 3,
+        "col": 3,
+        "header": "주관식 의견",
+        "note": "소속+부서+직급 조합"
+      }
+    },
+    {
+      "answer_id": "X21",
+      "value": "오세린",
+      "category": "이름",
+      "tier": "검토",
+      "location": {
+        "kind": "comment",
+        "sheet": "응답",
+        "cell": "A3"
+      }
+    },
+    {
+      "answer_id": "X22",
+      "value": "구하윤",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "hidden_sheet",
+        "sheet": "내부메모",
+        "row": 1,
+        "col": 0,
+        "header": "확인자"
+      }
+    },
+    {
+      "answer_id": "X23",
+      "value": "구하윤",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "metadata",
+        "field": "creator"
+      }
+    },
+    {
+      "answer_id": "X24",
+      "value": "구하윤",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "metadata",
+        "field": "author",
+        "note": "kordoc이 author로 알려 줌"
+      }
+    }
+  ],
+  "must_not_detect": []
+}

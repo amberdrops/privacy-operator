@@ -1,0 +1,119 @@
+{
+  "file": "강사계약_샘플.pdf",
+  "answers": [
+    {
+      "answer_id": "P01",
+      "value": "김민수",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "label": "성명"
+      }
+    },
+    {
+      "answer_id": "P02",
+      "value": "901301-1000000",
+      "category": "주민등록번호",
+      "tier": "확실",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "label": "주민등록번호",
+        "note": "월 13: 날짜 검증 실패해도 후보"
+      }
+    },
+    {
+      "answer_id": "P03",
+      "value": "경기도 가상시 예시로 123, 101동 1001호",
+      "category": "주소",
+      "tier": "검토",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "label": "주소"
+      }
+    },
+    {
+      "answer_id": "P04",
+      "value": "010-0000-0001",
+      "category": "전화",
+      "tier": "확실",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "label": "연락처"
+      }
+    },
+    {
+      "answer_id": "P05",
+      "value": "minsu.kim@example.kr",
+      "category": "이메일",
+      "tier": "확실",
+      "location": {
+        "kind": "paragraph",
+        "page": 1,
+        "label": "이메일"
+      }
+    },
+    {
+      "answer_id": "P06",
+      "value": "000-0000-0000-01",
+      "category": "계좌번호",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 1,
+        "col": 1,
+        "header": "계좌번호"
+      }
+    },
+    {
+      "answer_id": "P07",
+      "value": "김민수",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "table",
+        "table": 0,
+        "row": 1,
+        "col": 2,
+        "header": "예금주"
+      }
+    },
+    {
+      "answer_id": "P08",
+      "value": "김민수",
+      "category": "이름",
+      "tier": "확실",
+      "location": {
+        "kind": "metadata",
+        "field": "author"
+      }
+    },
+    {
+      "answer_id": "P09",
+      "value": "김민수",
+      "category": "이름",
+      "tier": "검토",
+      "location": {
+        "kind": "comment",
+        "page": 1,
+        "note": "PDF 주석"
+      }
+    }
+  ],
+  "must_not_detect": [
+    {
+      "answer_id": "PN01",
+      "value": "1588-0000",
+      "reason": "기관 대표번호(오탐 확인용)",
+      "location": {
+        "kind": "paragraph",
+        "page": 1
+      }
+    }
+  ]
+}

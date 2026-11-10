@@ -1,0 +1,72 @@
+{
+  "name": "plain",
+  "label_key": "theme.plain",
+  "decorated": false,
+  "colors": {
+    "paper": "#FFFFFF",
+    "paper_head": "#F3F5F8",
+    "line": "#DCE1E7",
+    "ink": "#211E24",
+    "ink_sub": "#5E5862",
+    "accent": "#2F5D8A",
+    "accent_deep": "#1F4466",
+    "on_accent": "#FFFFFF",
+    "accent_fill": "#D6E4F1",
+    "on_accent_fill": "#1F4466",
+    "on_primary": "#FFFFFF",
+    "ring_text": "#2F5D8A",
+    "ring_text_deep": "#1F4466",
+    "metal_deep": "#7D8A97",
+    "row_selected": "#E8F0F8",
+    "band": "#EEF1F4",
+    "band_2": "#F4F6F8",
+    "band_line": "#DCE2E8",
+    "label": "#5A6470",
+    "metal": "#C3CBD3",
+    "signal_text": "#276B43",
+    "signal_dot": "#3FA866",
+    "night": "#232A33",
+    "focus": "#4F7BA8",
+    "step_done_border": "#B7C3CF",
+    "step_todo_text": "#5F6873",
+    "step_todo_border": "#CBD3DB",
+    "disabled_bg": "#E4E8EC",
+    "bezel": "#D6DADF",
+    "bezel_rim": "#ADB3BA",
+    "bezel_ink": "#3A3A3A"
+  },
+  "type_colors": {
+    "name": "#D9608E",
+    "phone": "#7B62C9",
+    "email": "#3E8FBF",
+    "address": "#B9805F",
+    "number": "#A0525C",
+    "gray": "#8C8590"
+  },
+  "text_pairs": [
+    ["ink", "paper"], ["ink_sub", "paper"], ["accent", "paper"], ["accent_deep", "paper"],
+    ["ink", "paper_head"], ["ink_sub", "paper_head"], ["accent", "paper_head"],
+    ["ink", "row_selected"], ["ink_sub", "row_selected"], ["accent_deep", "row_selected"],
+    ["ink", "band"], ["ink_sub", "band"], ["accent", "band"], ["label", "band"], ["signal_text", "band"],
+    ["step_todo_text", "band"], ["ink", "band_2"], ["ink_sub", "band_2"], ["accent", "band_2"], ["label", "band_2"],
+    ["on_accent", "accent"], ["on_accent", "night"], ["ink_sub", "disabled_bg"], ["bezel_ink", "bezel"],
+    ["on_accent_fill", "accent_fill"], ["ring_text", "band"], ["ring_text_deep", "band"], ["ring_text", "paper"]
+  ],
+  "graphic_pairs": [["focus", "paper"], ["focus", "band"], ["accent", "band_line"], ["metal_deep", "paper"]],
+  "assets": {
+    "dir": "plain",
+    "bezel": "bezel@2x.png",
+    "btn_primary": "btn-primary@2x.png",
+    "btn_primary_hover": "btn-primary-hover@2x.png",
+    "btn_primary_pressed": "btn-primary-pressed@2x.png",
+    "btn_secondary": "btn-secondary@2x.png",
+    "band_texture": "band-texture.png",
+    "chevron": "chevron-down.svg",
+    "emblem": "emblem@2x.png"
+  },
+  "nine_slice": {
+    "bezel": {"slice": [210, 260, 283, 261], "border": [19, 24, 34, 24], "chin_flat": [0.22, 0.9]},
+    "btn_primary": {"slice": [128, 154, 128, 154], "border": [10, 12, 10, 12]},
+    "btn_secondary": {"slice": [128, 154, 128, 154], "border": [10, 12, 10, 12]}
+  }
+}
