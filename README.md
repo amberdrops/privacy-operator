@@ -8,7 +8,7 @@
 
 ## 설치
 
-1. [Releases](https://github.com/amberdrops/privacy-operator/releases)에서 `PrivacyOperator-Setup-0.9.0.exe`를 내려받습니다. 지금은 **베타**(0.9.0)입니다. 써 보시고 잘못 찾거나 놓친 것을 [Issues](https://github.com/amberdrops/privacy-operator/issues)에 알려 주세요.
+1. [Releases](https://github.com/amberdrops/privacy-operator/releases)에서 `PrivacyOperator-Setup-0.9.1.exe`를 내려받습니다. 지금은 **베타**(0.9.1)입니다. 써 보시고 잘못 찾거나 놓친 것을 [Issues](https://github.com/amberdrops/privacy-operator/issues)에 알려 주세요.
 2. 두 번 눌러 설치합니다. Windows 10, 11 (64비트)에서 돌아가고, 관리자 권한은 없어도 됩니다.
 3. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다. 아직 코드서명을 하지 않아서 뜨는 창입니다.
 

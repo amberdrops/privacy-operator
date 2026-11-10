@@ -30,22 +30,3 @@ tests/screenshots/
 
 # 에셋 원본
 assets/_source/
-
-# 이 PC의 Claude Code 설정
-.claude/settings.local.json
-# 데모 영상: 화면이 바뀌어 다시 찍을 예정(docs/03 11단계). 찍은 뒤 릴리스에 올린다
-/demo/
-
-# 내부 문서: 이 컴퓨터에만 둔다(GitHub에는 올리지 않는다, 2026-11-10)
-CLAUDE.md
-docs/01_기획서.md
-docs/02_디자인명세.md
-docs/03_작업순서.md
-docs/04_작전패키지_규격.md
-docs/06_스토어등록.md
-docs/07_사용법영상_콘티.md
-docs/AI탐지_검증기록.md
-docs/kordoc_검증기록.md
-
-# 사용법 영상 도구: 이 컴퓨터에만 둔다(2026-11-10)
-tools/demo_video.py
