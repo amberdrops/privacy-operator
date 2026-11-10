@@ -46,6 +46,7 @@ _JOSA_END = frozenset("는를의에로도와께며랑만을과가")
 # `/`는 날짜(`11/09`) 안에서는 나누지 않는다
 _NAME_SPLIT = re.compile(r"[,，、·;\n]|/(?!\d)|(?<!\d)/|\s{2,}")
 _NEXT_LABEL = re.compile(r"\s[^\s:：]{1,12}\s*[:：]|\n")
+_PAREN_INNER = re.compile(r"[(（\[]([^()（）\[\]]*)[)）\]]")
 
 
 # 직위 뒤에 붙어도 되는 조사(`교무부장과 협의`). 다른 낱말이 붙으면(`부장회의`) 직위가 아니다
@@ -90,11 +91,26 @@ class RuleSet:
         """이름이 들어가는 칸의 이름표: 이름 열 제목, 결재 역할, 직위."""
         return bool(h) and (self.is_name_header(h) or h in _SIGN_HEADERS or _is_title(h))
 
+    def _known_header(self, h: str) -> bool:
+        return self._names_under(h) or h in FORMAT_HEADERS or h in ADDRESS_HEADERS or h in GRAY_HEADERS
+
+    def header_key(self, raw: str | None) -> str:
+        """열 제목을 사전과 맞출 글자로. 괄호 밖이 모르는 말이면 괄호 안을 본다:
+        `변경 전(성명)`, `변경 후(성명)`은 성명 열이다(2026-11-10)."""
+        h = normalize_header(raw or "")
+        if self._known_header(h):
+            return h
+        for inner in _PAREN_INNER.findall(raw or ""):
+            k = normalize_header(inner)
+            if self._known_header(k):
+                return k
+        return h
+
     # ---------------------------------------------------------------- 블록 전체
 
     def block_candidates(self, block: Block) -> list[Candidate]:
         text = block.text
-        header = normalize_header(block.location.header or "")
+        header = self.header_key(block.location.header)
         header_cat = FORMAT_HEADERS.get(header)
 
         if block.kind == METADATA and block.location.field in AUTHOR_FIELDS:
@@ -106,7 +122,9 @@ class RuleSet:
         if block.kind == CELL and not block.is_header and header:
             out += self._column(text, header, out)
         label = normalize_header(block.location.row_label or "")
-        if block.kind == CELL and label and self._names_under(label) and not self._names_under(header):
+        # 열 제목이 따로 정해진 칸(직위, 소속, 연락처 …)은 왼쪽 칸이 직위여도 이름 칸이 아니다
+        # (`직급 | 직위` 표에서 `교육연구사 | 위원`의 위원이 이름으로 잡혔다, 2026-11-10)
+        if block.kind == CELL and label and self._names_under(label) and not self._known_header(header):
             # 이름표가 왼쪽 칸에 있는 표(`원 장 | 2026. 10. 7. 박서연`, `성명 | 김민수`). 머리글 줄로 읽힌 칸은
             # 결재 날짜가 있을 때만 본다(첫 줄이 결재자인 결재란)
             if not block.is_header or re.search(_SIGN_DATE, text):
@@ -248,8 +266,11 @@ def _base_title(word: str) -> str:
 
 
 def _role_name_ok(name: str) -> bool:
-    return (len(name) >= 3 and looks_like_name(name) and name not in NOT_NAMES and not _is_title(name)
-            and name[-1] not in _JOSA_END)
+    # 조사를 떼면 이름이 아닌 말(`위원장은 연수원장이`, `위원은 부원장이`)도 뺀다(2026-11-10).
+    # 이름 끝 '은', '이'는 이름일 수도 있어(김하은) 뗀 말이 사전에 있을 때만 뺀다
+    bases = {name, strip_josa(name), name[:-1] if name[-1] in "은이" else name}
+    return (len(name) >= 3 and looks_like_name(name) and name[-1] not in _JOSA_END
+            and not any(b in NOT_NAMES or _is_title(b) for b in bases))
 
 
 _WORD = re.compile(r"[가-힣]+")

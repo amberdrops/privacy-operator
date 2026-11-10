@@ -467,3 +467,26 @@ def test_building_words_are_not_addresses(text):
 def test_road_address_after_eup_with_a_note_in_parentheses(text, addr):
     """공문 아래 주소: 읍 다음 도로명, 뒤 괄호에 읍 이름과 기관 이름(줄이 바뀌기도 한다, 2026-11-10 사용자 문서 모양)."""
     assert values(run(para(text)), category="주소") == [addr]
+
+
+# ---------------------------------------------------------------- 위원회 구성표(2026-11-10)
+
+def test_committee_table_before_and_after_name_columns():
+    """`변경 전(성명)`, `변경 후(성명)` 열의 이름을 모두 찾고, 직위 열의 위원, 간사는 이름으로 보지 않는다."""
+    found = run(table(
+        ["구분", "소속", "직급", "직위", "변경 전\n(성명)", "변경 후\n(성명)", "비고"],
+        ["당연직", "가상연수원", "교육연구사", "위원", "김민수", "김민수", ""],
+        ["위촉직", "가상대학교", "교수", "위원", "박서연", "이도윤", "변경"],
+        ["", "가상연수원", "행정연수담당사무관", "간사", "정하람", "최유진", "변경"],
+    ))
+    names = values(found, category="이름")
+    assert sorted(set(names)) == ["김민수", "박서연", "이도윤", "정하람", "최유진"]
+    assert all(f.raw_value not in ("위원", "간사") for f in found if f.category == "이름")
+    after = [f for f in found if f.category == "이름" and f.location.col == 5]
+    assert {f.raw_value for f in after} == {"김민수", "이도윤", "최유진"}
+
+
+@pytest.mark.parametrize("text", ["위촉직 위원 3명을 새로 위촉한다", "교수요원 위원으로 참여한다",
+                                  "위원장은 연수원장이 된다", "위원은 부원장이 정한다"])
+def test_committee_words_before_role_are_not_names(text):
+    assert values(run(para(text)), category="이름") == []
