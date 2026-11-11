@@ -12,6 +12,8 @@ engine/node_modules/
 # Schift(선택): engine/schift/install.py, requirements.txt만 저장소에 둔다
 engine/schift/.venv/
 engine/schift/hf_home/
+# 모델 설치 도구용 깨끗한 내장형 파이썬(python.org embeddable + pip.whl). 빌드 PC에만 둔다
+engine/pyembed/
 
 # 작전 데이터: 저장소에 넣지 않음
 vault/

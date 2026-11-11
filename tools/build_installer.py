@@ -9,8 +9,12 @@
 3. 자주 묻는 질문(HTML), 라이선스(LICENSE.txt, licenses/, THIRD_PARTY_NOTICES.txt)를 넣는다.
 4. Inno Setup으로 dist/PrivacyOperator-Setup-<판>.exe를 만든다.
 
+모델 설치 도구(engine/pyembed가 있을 때만): APP/engine/schift-setup 에 install.py, requirements.txt, 작업 프로세스,
+깨끗한 내장형 파이썬(python/, pip.whl 포함)을 넣는다. 설정 창의 '모델 설치' 단추가 이것을 따로 띄워 모델을 받는다.
+Store판(MSIX)에서는 뺀다.
+
 넣지 않는 것
-- Schift(선택 설치, 첫 판 제외. 2026-11-09 결정)
+- Schift 모델과 torch 등 실행 도구(1GB가 넘는다. 사용자가 '모델 설치'를 누르면 도구가 원래 자리에서 받는다)
 - 엔진의 onnxruntime-node, @huggingface: 스캔 PDF 글자 인식과 수식 인식용이다. OCR은 1.1(2026-11-08 결정)이고,
   KORDOC_OFFLINE=1이라 모델도 받지 않으므로 쓰이지 않는다. 필요할 때만 불러오는 부품이라 없어도 읽기는 된다.
 - numpy, PIL: openpyxl이 깔려 있을 때만 끌어오는 부품이다(개발용 묶음에만 있다).
@@ -28,6 +32,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import zipfile
 from importlib.metadata import PackageNotFoundError, distribution, requires
 from pathlib import Path
 
@@ -106,6 +111,34 @@ def add_engine() -> None:
     shutil.copytree(ENGINE_SRC, APP / "engine" / "node_modules", ignore=_engine_ignore)
     (APP / "engine" / "node").mkdir(parents=True)
     shutil.copy2(node, APP / "engine" / "node" / "node.exe")
+
+
+PYEMBED = ROOT / "engine" / "pyembed"  # python.org의 Windows embeddable 3.12를 푼 것 + pip.whl (저장소에 넣지 않는다)
+SETUP_DIR = Path("engine") / "schift-setup"
+VC_RUNTIME = ("msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_codecvt_ids.dll", "concrt140.dll",
+              "vcruntime140.dll", "vcruntime140_1.dll")
+
+
+def add_model_setup() -> bool:
+    """모델 설치 도구를 넣는다. 깨끗한 내장형 파이썬(engine/pyembed)이 없으면 건너뛴다(그 판은 설정 창에 단추가 없다)."""
+    if not (PYEMBED / "python.exe").is_file() or not (PYEMBED / "pip.whl").is_file():
+        print("engine/pyembed가 없어 모델 설치 도구는 넣지 않습니다.")
+        return False
+    dest = APP / SETUP_DIR
+    dest.mkdir(parents=True)
+    for name in ("install.py", "requirements.txt"):
+        shutil.copy2(ROOT / "engine" / "schift" / name, dest / name)
+    shutil.copy2(ROOT / "src" / "privacy_operator" / "detect" / "ai" / "schift_worker.py", dest / "schift_worker.py")
+    shutil.copytree(PYEMBED, dest / "python")
+    # torch는 Visual C++ 런타임(msvcp140.dll 등)을 Windows에서 찾는다. 깔려 있지 않은 PC에서는 모델 확인 단계가
+    # 실패하므로, 본체에 이미 들어 있는 것(PySide6가 싣는 마이크로소프트 서명 파일, 같은 판 한 벌)을 파이썬 옆에 둔다.
+    # 설치 도구가 이 폴더를 통째로 <home>/python 으로 복사한다(2026-11-11 진짜 설치로 확인)
+    import PySide6
+
+    qt = Path(PySide6.__file__).parent
+    for name in VC_RUNTIME:
+        shutil.copy2(qt / name, dest / "python" / name)
+    return True
 
 
 def add_assets() -> None:
@@ -192,7 +225,8 @@ def add_licenses() -> None:
         "개인정보작전실이 함께 싣고 있는 다른 사람의 소프트웨어와 그 라이선스입니다.",
         "개인정보작전실 자체는 GNU AGPL-3.0으로 배포합니다(LICENSE.txt).",
         f"소스 코드: {SOURCE_URL or '공개 주소는 GitHub에 올린 뒤 이 자리에 적습니다.'}",
-        "라이선스 원문: licenses/ 폴더(AGPL-3.0, GPL-3.0, LGPL-3.0, Node.js, Python), 글꼴은 assets/fonts/OFL.txt",
+        "라이선스 원문: licenses/ 폴더(AGPL-3.0, GPL-3.0, LGPL-3.0, Node.js, Python, 선택 모델의 Schift License),"
+        " 글꼴은 assets/fonts/OFL.txt",
         "",
         "=" * 72,
         "Python 3.12 (PSF License): licenses/Python-LICENSE.txt",
@@ -210,6 +244,29 @@ def add_licenses() -> None:
         files = [Path(d.locate_file(f)) for f in (d.files or []) if LICENSE_FILE.search(str(f))]
         parts += ["", "#" * 72, f"{meta['Name']} {meta['Version']}  ({lic[:80]})",
                   meta.get("Home-page") or "", _texts([f for f in files if f.is_file()])]
+    setup_py = APP / SETUP_DIR / "python"
+    if setup_py.is_dir():  # 모델 설치 도구에 들어간 부품
+        parts += ["", "=" * 72, "모델 설치 도구(engine/schift-setup)", "=" * 72,
+                  "", "#" * 72, "Python 3.12 내장형 배포본 (PSF License)",
+                  _texts(sorted(setup_py.glob("LICENSE*")))]
+        whl = setup_py / "pip.whl"
+        if whl.is_file():
+            with zipfile.ZipFile(whl) as z:
+                names = [n for n in z.namelist() if LICENSE_FILE.search(n)]
+                lic = "\n\n".join(f"--- {n}\n\n{z.read(n).decode('utf-8', errors='replace').strip()}" for n in names)
+            parts += ["", "#" * 72, "pip  (MIT License)", lic]
+        # 모델과 그 실행 도구는 싣지 않는다. 조건이 다른 별도 구성요소임을 받기 전에 알 수 있게 적어 둔다
+        parts += ["", "=" * 72, "설치할 때 받는 선택 구성요소 (이 배포본에는 들어 있지 않음)", "=" * 72, "",
+                  "schift-ko-pii (모델 schift-io/schift-ko-pii-v7, 파이썬 패키지 schift-ko-pii)",
+                  "Copyright (c) 2026 Schift, Inc. (Room821 Co., Ltd.)",
+                  "Schift License v2.0: licenses/Schift-License-2.0.txt",
+                  "https://huggingface.co/schift-io/schift-ko-pii-v7",
+                  "",
+                  "GitHub 설치 파일판의 설정에서 '모델 설치'를 누르면, 설치 도구가 사용자의 컴퓨터로 위 저장소에서",
+                  "바뀌지 않은 원본을 직접 받는다. 실행 도구(PyTorch 등)도 그때 공식 저장소에서 받는다.",
+                  "이 모델은 개인정보작전실(AGPL-3.0)과 따로 도는 별도 구성요소이며 Schift License v2.0을 따른다:",
+                  "연구, 교육, 평가, 개인, 비영리 사용은 무료이고, 연 매출이 미화 1천만 달러를 넘는 곳의 상업적",
+                  "사용은 Schift의 별도 허락이 필요하다."]
     parts += ["", "=" * 72, "kordoc 엔진(engine/node_modules)", "=" * 72]
     for p in _node_packages(APP / "engine" / "node_modules"):
         pkg = json.loads((p / "package.json").read_text(encoding="utf-8"))
@@ -313,6 +370,7 @@ def make_msix() -> Path:
     stage = BUILD / "msix"
     remove(stage)
     shutil.copytree(APP, stage)
+    remove(stage / SETUP_DIR)  # Store판에는 모델 설치 도구를 넣지 않는다(내려받기 도구라 정책상 뺀다)
     msix_assets(stage / "Assets")
     (stage / "AppxManifest.xml").write_text(MSIX_MANIFEST.format(
         name=ident["name"], publisher=ident["publisher"], publisher_display=ident["publisher_display_name"],
@@ -354,6 +412,7 @@ def main() -> None:
     freeze(icon)
     step("엔진, Node, 에셋 넣기")
     add_engine()
+    add_model_setup()
     add_assets()
     step("자주 묻는 질문, 라이선스 안내")
     add_faq()

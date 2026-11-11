@@ -1,8 +1,11 @@
 """Schift 한국어 개인정보 탐지 모델로 이름과 주소를 더 찾는다(9단계, 선택).
 
 모델: Hugging Face `schift-io/schift-ko-pii-v7`, 파이썬 패키지 `schift-ko-pii`(Schift License v2.0).
-torch가 필요해 프로그램 본체와 다른 파이썬 환경(engine/schift/.venv)에 설치하고, 작업 프로세스
+torch가 필요해 프로그램 본체와 다른 파이썬 환경에 설치하고, 작업 프로세스
 (schift_worker.py)로 띄워 표준 입출력으로 주고받는다. 설치는 docs/AI탐지_검증기록.md.
+
+설치 도구(engine/schift/install.py)는 본체와 따로 도는 프로그램이다. 통신은 그 도구만 한다(schift_setup.py가 띄운다).
+깔린 모습은 두 가지: 새 구조 `<home>/python`(내장형 파이썬)+`hf_home`+`installed.json`, 옛 구조 `<home>/.venv`+`hf_home`.
 
 - 찾은 이름과 주소는 '검토' 등급, '대기' 상태로 들어온다(AI 판단만으로 '확실'이 되지 않는다).
 - 규칙 탐지가 이미 찾은 자리와 겹치면 버린다.
@@ -14,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -27,8 +31,11 @@ from privacy_operator.reader.blocks import ReadResult
 
 log = logging.getLogger(__name__)
 
-WORKER = Path(__file__).resolve().with_name("schift_worker.py")
-_ROOT = Path(__file__).resolve().parents[4]
+WORKER = Path(__file__).resolve().with_name("schift_worker.py")  # 소스에서. 설치판에는 없다(worker_path 참고)
+_ROOT = Path(__file__).resolve().parents[4]  # 소스: 저장소, 설치판: 앱 폴더(_internal/privacy_operator/... 아래)
+INSTALLED_MARK = "installed.json"  # 새 구조의 설치 완료 표시(맨 마지막에 쓴다)
+# remove_model이 지우는 이름. 이 밖의 것(install.py 등)은 건드리지 않는다
+MODEL_ITEMS = ("python", ".venv", "hf_home", INSTALLED_MARK)
 CATEGORY = {"private_person": NAME, "private_address": ADDRESS}
 BATCH = 40  # 한 번에 보내는 블록 수(진행 표시 단위)
 
@@ -44,20 +51,84 @@ class SchiftError(RuntimeError):
         self.code = code
 
 
+def _frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
 def engine_home() -> Path:
-    """설치 폴더. 시험이나 배포에서는 PRIVACY_OPERATOR_SCHIFT_HOME으로 바꾼다."""
+    """모델이 깔리는 폴더. 시험이나 배포에서는 PRIVACY_OPERATOR_SCHIFT_HOME으로 바꾼다.
+    설치판은 앱 폴더 밖이다(설치 마법사가 판을 올릴 때 {app}/engine을 지우므로 1GB를 다시 받게 된다)."""
     override = os.environ.get("PRIVACY_OPERATOR_SCHIFT_HOME")
-    return Path(override) if override else _ROOT / "engine" / "schift"
+    if override:
+        return Path(override)
+    if _frozen():
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "PrivacyOperator" / "schift"
+    return _ROOT / "engine" / "schift"
+
+
+def setup_dir() -> Path:
+    """설치 도구 폴더(install.py, requirements.txt). 설치판은 앱 폴더 안 engine/schift-setup."""
+    return _ROOT / "engine" / ("schift-setup" if _frozen() else "schift")
+
+
+def setup_python_dir() -> Path:
+    """설치 도구를 돌리는 깨끗한 내장형 파이썬 폴더(python.exe와 pip.whl이 들어 있다)."""
+    return setup_dir() / "python" if _frozen() else _ROOT / "engine" / "pyembed"
+
+
+def setup_available() -> bool:
+    """모델 설치 도구가 이 판에 들어 있는가(Store판은 없다)."""
+    py = setup_python_dir()
+    exe = "python.exe" if sys.platform == "win32" else "python"
+    return ((setup_dir() / "install.py").is_file() and (py / exe).is_file() and (py / "pip.whl").is_file())
+
+
+def worker_path() -> Path:
+    return WORKER if WORKER.is_file() else setup_dir() / "schift_worker.py"
+
+
+def _embedded_python(home: Path) -> Path:
+    return home / "python" / ("python.exe" if sys.platform == "win32" else "bin/python")
+
+
+def _venv_python(home: Path) -> Path:
+    return home / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 
 
 def engine_python(home: Path | None = None) -> Path:
     home = home or engine_home()
-    return home / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    emb = _embedded_python(home)
+    return emb if emb.is_file() else _venv_python(home)
 
 
 def is_installed(home: Path | None = None) -> bool:
+    """새 구조는 완료 표시와 파이썬이 모두 있을 때만(받다 만 것은 설치된 것이 아니다). 옛 구조는 파이썬과 hf_home."""
     home = home or engine_home()
-    return engine_python(home).is_file() and (home / "hf_home").is_dir()
+    if _embedded_python(home).is_file():
+        return (home / INSTALLED_MARK).is_file() and (home / "hf_home").is_dir()
+    return _venv_python(home).is_file() and (home / "hf_home").is_dir()
+
+
+def remove_model(home: Path | None = None) -> bool:
+    """깔린 모델과 실행 환경을 지운다. MODEL_ITEMS에 적힌 이름만 지우고 폴더 자체와 다른 파일은 남긴다."""
+    home = home or engine_home()
+    ok = True
+    for name in MODEL_ITEMS:
+        target = home / name
+        try:
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            elif target.exists() or target.is_symlink():
+                target.unlink()
+        except OSError:
+            log.warning("모델 폴더 지우기 실패(%s)", name)
+            ok = False
+    try:
+        home.rmdir()  # 비었을 때만(설치판의 사용자 폴더). 소스 폴더는 install.py가 있어 남는다
+    except OSError:
+        pass
+    return ok
 
 
 @dataclass
@@ -70,10 +141,11 @@ class SchiftReport:
 class SchiftEngine:
     """작업 프로세스 하나. with 문으로 쓰거나 close()로 닫는다."""
 
-    def __init__(self, home: Path | None = None, python: Path | None = None, worker: Path = WORKER):
+    def __init__(self, home: Path | None = None, python: Path | None = None,
+                 worker: Path | None = None):
         self.home = home or engine_home()
         self.python = python or engine_python(self.home)
-        self.worker = worker
+        self.worker = worker or worker_path()
         self.proc: subprocess.Popen | None = None
         self.version = ""
 

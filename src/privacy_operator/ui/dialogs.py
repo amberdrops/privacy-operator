@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -33,6 +34,8 @@ from PySide6.QtWidgets import (
 
 from privacy_operator.alias.crypto import MIN_PASSWORD_LENGTH, WrongPassword
 from privacy_operator.detect.ai.schift import is_installed as schift_installed
+from privacy_operator.detect.ai.schift import remove_model, setup_available
+from privacy_operator.detect.ai.schift_setup import CANCELLED, ModelSetup
 from privacy_operator import BETA, __version__
 from privacy_operator.settings import PROJECT_ROOT, Settings, SettingsError, validate_paths
 from privacy_operator.ui.theme import available_themes, load_theme
@@ -285,27 +288,118 @@ class SettingsDialog(_Dialog):
         self._row(None, self.license_btn, Qt.AlignmentFlag.AlignLeft)
 
     def _ai_section(self, settings: Settings) -> None:
-        """AI 탐지(선택). 모델(schift-ko-pii)이 설치되어 있을 때만 보인다. 켤 수 없는 칸은 두지 않는다."""
+        """AI 탐지(선택). 모델(schift-ko-pii)이 깔려 있으면 켜는 칸과 지우기, 아직 없고 설치 도구가 있으면 설치 단추.
+        둘 다 없으면(Store판) 칸 전체를 두지 않는다. 켤 수 없는 칸은 두지 않는다."""
         self.ai_schift: QCheckBox | None = None
-        if not schift_installed():
+        self.ai_error: QLabel | None = None
+        self._ai_title = self._ai_box = None
+        self._ai_on = settings.ai_schift
+        self._ai_widgets: list[QWidget] = []
+        if not (schift_installed() or setup_available()):
             return
-        self._section("settings.ai")
-        self._row(None, self.label("settings.ai_note", "Guide"))
-        self.ai_schift = QCheckBox()
-        self.binder.text(self.ai_schift, "settings.ai_schift", tip=False)
-        self.ai_schift.setChecked(settings.ai_schift)
-        self._row(None, self.ai_schift)
+        self._ai_title = self._section("settings.ai")
+        self._ai_box = QWidget()
+        self._ai_lay = QVBoxLayout(self._ai_box)
+        self._ai_lay.setContentsMargins(0, 0, 0, 0)
+        self._ai_lay.setSpacing(10)
+        self._row(None, self._ai_box)
+        self._fill_ai()
+
+    def _fill_ai(self) -> None:
+        """AI 칸을 지금 상태(깔림, 설치 가능)에 맞게 다시 그린다."""
+        if self.ai_schift is not None:
+            self._ai_on = self.ai_schift.isChecked()
+        gone = set(map(id, self._ai_widgets))
+        self.binder.items = [i for i in self.binder.items if id(i[0]) not in gone]
+        for w in self._ai_widgets:
+            self._ai_lay.removeWidget(w)
+            w.hide()
+            w.deleteLater()
+        self._ai_widgets, self.ai_schift, self.ai_error = [], None, None
+        installed = schift_installed()
+        shown = installed or setup_available()
+        self._ai_title.setVisible(shown)
+        self._ai_box.setVisible(shown)
+
+        def add(w: QWidget, align=None) -> QWidget:
+            self._ai_widgets.append(w)
+            if align is None:
+                self._ai_lay.addWidget(w)
+            else:
+                self._ai_lay.addWidget(w, 0, align)
+            w.show()  # 이미 열린 창에 나중에 더한 칸도 보이게(부모에 붙인 뒤에)
+            return w
+
+        left = Qt.AlignmentFlag.AlignLeft
+        if installed:
+            add(self.label("settings.ai_note", "Guide"))
+            self.ai_schift = QCheckBox()
+            self.binder.text(self.ai_schift, "settings.ai_schift", tip=False)
+            self.ai_schift.setChecked(self._ai_on)
+            add(self.ai_schift)
+            self.ai_remove = self.button("settings.ai_remove")
+            self.ai_remove.clicked.connect(self._remove_model)
+            add(self.ai_remove, left)
+        elif setup_available():
+            add(self.label("settings.ai_install_note", "Guide"))
+            self.ai_install = self.button("settings.ai_install")
+            self.ai_install.clicked.connect(self._install_model)
+            add(self.ai_install, left)
+            self.ai_error = QLabel()
+            self.ai_error.setObjectName("Error")
+            self.ai_error.setWordWrap(True)
+            add(self.ai_error)
+            self.ai_error.hide()  # 문구가 있을 때만 보인다
+
+    def _install_model(self) -> None:
+        """안내 창에서 계속하면 설치 도구를 돌린다(진행 창). 성공하면 칸이 켜진 체크 상자로 바뀐다."""
+        if ModelNoticeDialog(self.voice, self).exec() != QDialog.DialogCode.Accepted:
+            return
+        self.ai_error.setText("")
+        self.ai_error.hide()
+        dlg = ModelSetupDialog(self.voice, ModelSetup(), self)
+        dlg.exec()
+        code = dlg.code
+        dlg.deleteLater()  # 설정 창이 열려 있는 동안 쌓이지 않게
+        if code == "":
+            self._ai_on = True
+            self._fill_ai()
+        elif code and code != CANCELLED and self.ai_error is not None:
+            key = f"settings.ai_err.{code}"
+            self.ai_error.setText(self.voice.t(key) if key in self.voice.keys()
+                                  else self.voice.t("settings.ai_err.other", code=code))
+            self.ai_error.show()
+
+    def _confirm_remove(self) -> bool:
+        box = QMessageBox(self)
+        box.setWindowTitle(self.voice.t("settings.ai"))
+        box.setText(self.voice.t("settings.ai_remove_ask"))
+        go = box.addButton(self.voice.t("settings.ai_remove_yes"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(self.voice.t("settings.ai_notice_cancel"), QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        return box.clickedButton() is go
+
+    def _remove_model(self) -> None:
+        if not self._confirm_remove():
+            return
+        if not remove_model():
+            QMessageBox.warning(self, self.voice.t("settings.ai"), self.voice.t("settings.ai_remove_fail"))
+        self._ai_on = False  # 지우면 AI 설정도 끈다
+        self.ai_schift.setChecked(False)
+        self._fill_ai()
 
     # ---------------------------------------------------------------- 격자 줄
 
-    def _section(self, key: str) -> None:
+    def _section(self, key: str) -> QLabel:
         """묶음 제목. 첫 묶음이 아니면 위에 여백 줄을 둔다."""
         g = self.grid
         r = g.rowCount() if g.count() else 0
         if r:
             g.setRowMinimumHeight(r, 12)
             r += 1
-        g.addWidget(self.label(key, "PanelLabel"), r, 0, 1, 2)
+        title = self.label(key, "PanelLabel")
+        g.addWidget(title, r, 0, 1, 2)
+        return title
 
     def _row(self, key, item, align=None) -> None:
         """이름(없으면 비움)과 칸 한 줄. 이름 없는 줄은 입력 칸 세로줄에서 시작한다."""
@@ -373,6 +467,85 @@ def blind_spot_lines(voice: Voice, results) -> list[str]:
                 why = voice.t(f"blind.kind.{b.kind}", n=b.detail if b.detail.isdigit() else 1)
             lines.append(f"{where}: {why}")
     return lines
+
+
+class ModelNoticeDialog(_Dialog):
+    """모델 설치 전 안내: 내려받는 크기, 인터넷에 한 번 연결함, 모델 라이선스."""
+
+    def __init__(self, voice: Voice, parent=None):
+        super().__init__(voice, "settings.ai_notice_title", parent)
+        self.lay.addWidget(self.label("settings.ai_notice_text"))
+        self.lay.addWidget(self.label("settings.ai_notice_license", "Guide"))
+        self.buttons("settings.ai_notice_go", "settings.ai_notice_cancel")
+
+
+_LIVE_THREADS: set = set()
+
+
+class SetupThread(QThread):
+    """모델 설치 도구를 다른 스레드에서 돌린다(화면이 멈추지 않게). 끝나면 오류 코드(성공은 빈 글자)를 넘긴다."""
+
+    progress = Signal(int, int, str)
+    done = Signal(str)
+
+    def __init__(self, setup: ModelSetup, parent=None):
+        super().__init__(parent)
+        self.setup = setup
+
+    def run(self) -> None:
+        self.done.emit(self.setup.run(self.progress.emit))
+
+
+class ModelSetupDialog(_Dialog):
+    """모델 설치 진행. 지금 단계 글, 끝을 모르는 진행 막대, 중지 단추. 끝나면 창이 스스로 닫히고 code에 결과가 남는다."""
+
+    def __init__(self, voice: Voice, setup: ModelSetup, parent=None):
+        super().__init__(voice, "settings.ai_setup_title", parent)
+        self.setup, self.code, self._thread = setup, None, None
+        self.setMinimumWidth(480)
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+        self.text = QLabel(voice.t("settings.ai_step.python"))
+        self.text.setWordWrap(True)
+        self.lay.addWidget(self.text)
+        bar = QProgressBar()
+        bar.setRange(0, 0)
+        bar.setTextVisible(False)
+        bar.setFixedHeight(8)
+        self.lay.addWidget(bar)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        self.stop_btn = self.button("settings.ai_setup_stop")
+        self.stop_btn.clicked.connect(self.stop)
+        row.addWidget(self.stop_btn)
+        self.lay.addLayout(row)
+
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        if self._thread is None:
+            self._thread = SetupThread(self.setup)  # 창과 따로 산다(창이 먼저 지워져도 스레드가 끝나야 지워진다)
+            _LIVE_THREADS.add(self._thread)
+            self._thread.finished.connect(lambda t=self._thread: _LIVE_THREADS.discard(t))
+            self._thread.progress.connect(self._step)
+            self._thread.done.connect(self._finished)
+            self._thread.start()
+
+    def _step(self, step: int, total: int, key: str) -> None:
+        k = f"settings.ai_step.{key}"
+        if k in self.voice.keys():
+            self.text.setText(self.voice.t("settings.ai_setup_step", what=self.voice.t(k), step=step, of=total))
+
+    def stop(self) -> None:
+        self.stop_btn.setEnabled(False)
+        self.setup.cancel()
+
+    def _finished(self, code: str) -> None:
+        self.code = code
+        self._thread.wait()
+        self.accept()
+
+    def reject(self) -> None:  # Esc는 중지와 같다
+        self.stop()
 
 
 class BlindSpotDialog(_Dialog):

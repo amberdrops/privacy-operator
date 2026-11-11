@@ -6,6 +6,7 @@
 ;
 ; 관리자 권한 없이 사용자 폴더(%LOCALAPPDATA%\Programs)에 설치한다. 학교, 기관 PC에서 관리자 권한이 없어도 깔린다.
 ; 제거해도 금고, 작업 폴더, 복원본(문서 폴더 아래)과 설정은 지우지 않는다. 대응표를 잃지 않게.
+; 단, 설정 창에서 받은 AI 모델({localappdata}\PrivacyOperator\schift)은 제거할 때 함께 지운다.
 
 [Setup]
 AppId={{6F1C2B7E-3D4A-4E8B-9A51-2C7D0E9F4B13}
@@ -37,6 +38,10 @@ Name: "desktopicon"; Description: "바탕화면에 바로가기 만들기"
 
 [Files]
 Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+[UninstallDelete]
+; 설정 창에서 받은 AI 모델(약 1GB)은 앱 폴더 밖에 있어 따로 지운다. 판을 올릴 때는 지우지 않는다(다시 받지 않게)
+Type: filesandordirs; Name: "{localappdata}\PrivacyOperator\schift"
 
 [InstallDelete]
 ; 판을 올릴 때 지난 판의 묶음 파일이 섞이지 않게

@@ -12,6 +12,7 @@ from test_ai_detect import FAKE_WORKER, FAMILY, PLAIN, doc
 from test_ui_window import _small_texts
 
 from privacy_operator import workflow as workflow_module
+from privacy_operator.ui import dialogs as dialogs_module
 from privacy_operator.alias.vault import Vault
 from privacy_operator.detect.ai.schift import SchiftEngine
 from privacy_operator.detect.ai.spans import is_ai
@@ -111,6 +112,7 @@ def test_mission_voice_ai_texts(win, qtbot):
 
 def test_settings_ai_section_without_schift_and_save(qtbot, tmp_path, monkeypatch):
     monkeypatch.setenv("PRIVACY_OPERATOR_SCHIFT_HOME", str(tmp_path / "없는곳"))
+    monkeypatch.setattr(dialogs_module, "setup_available", lambda: False)  # 설치 도구도 없는 판(Store판)
     s = Settings(vault_dir=str(tmp_path / "금고"), workspace_dir=str(tmp_path / "작전실"), ai_schift=True)
     dlg = SettingsDialog(Voice("plain"), s, lambda: None)
     qtbot.addWidget(dlg)
