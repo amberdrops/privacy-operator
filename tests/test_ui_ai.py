@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QLabel, QMessageBox
 from test_ai_detect import FAKE_WORKER, FAMILY, PLAIN, doc
 from test_ui_window import _small_texts
 
@@ -55,6 +55,10 @@ def win(qtbot, tmp_path, fake_engine):
     w.refresh()
     yield w
     wf.close()
+
+
+def _texts(widget, text: str) -> list:
+    return [w for w in widget.findChildren(QLabel) if w.text() == text]
 
 
 def _enable(win):
@@ -110,7 +114,8 @@ def test_settings_ai_section_without_schift_and_save(qtbot, tmp_path, monkeypatc
     s = Settings(vault_dir=str(tmp_path / "금고"), workspace_dir=str(tmp_path / "작전실"), ai_schift=True)
     dlg = SettingsDialog(Voice("plain"), s, lambda: None)
     qtbot.addWidget(dlg)
-    assert not dlg.ai_schift.isEnabled() and not dlg.ai_schift.isChecked()  # Schift가 없으면 켤 수 없다
+    assert dlg.ai_schift is None  # 모델이 없으면 AI 칸을 통째로 숨긴다(켤 수 없는 칸을 두지 않는다)
+    assert not _texts(dlg, Voice("plain").t("settings.ai"))
     assert not hasattr(dlg, "ai_model")
     dlg._save()
     assert not dlg.result_settings.ai_schift
@@ -119,3 +124,21 @@ def test_settings_ai_section_without_schift_and_save(qtbot, tmp_path, monkeypatc
     assert not _small_texts(dlg)
     SHOTS.mkdir(exist_ok=True)
     dlg.grab().save(str(SHOTS / "15_settings_ai.png"))
+
+
+def test_settings_ai_section_with_schift(qtbot, tmp_path, monkeypatch):
+    """모델 폴더가 있으면 칸이 보이고, 켠 값이 저장된다."""
+    home = tmp_path / "schift"
+    py = home / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    py.parent.mkdir(parents=True)
+    py.write_bytes(b"")
+    (home / "hf_home").mkdir()
+    monkeypatch.setenv("PRIVACY_OPERATOR_SCHIFT_HOME", str(home))
+    s = Settings(vault_dir=str(tmp_path / "금고"), workspace_dir=str(tmp_path / "작전실"))
+    dlg = SettingsDialog(Voice("plain"), s, lambda: None)
+    qtbot.addWidget(dlg)
+    assert dlg.ai_schift is not None and not dlg.ai_schift.isChecked()
+    assert _texts(dlg, Voice("plain").t("settings.ai"))
+    dlg.ai_schift.setChecked(True)
+    dlg._save()
+    assert dlg.result_settings.ai_schift

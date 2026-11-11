@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "privacy-operator"
-version = "0.9.2"
+version = "0.9.3"
 description = "개인정보작전실. 문서 속 개인정보를 로컬에서 가명처리하고 복원한다."
 readme = "README.md"
 requires-python = ">=3.11"

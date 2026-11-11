@@ -285,17 +285,16 @@ class SettingsDialog(_Dialog):
         self._row(None, self.license_btn, Qt.AlignmentFlag.AlignLeft)
 
     def _ai_section(self, settings: Settings) -> None:
-        """AI 탐지(선택). Schift는 설치되어 있어야 켤 수 있다."""
+        """AI 탐지(선택). 모델(schift-ko-pii)이 설치되어 있을 때만 보인다. 켤 수 없는 칸은 두지 않는다."""
+        self.ai_schift: QCheckBox | None = None
+        if not schift_installed():
+            return
         self._section("settings.ai")
         self._row(None, self.label("settings.ai_note", "Guide"))
-        installed = schift_installed()
         self.ai_schift = QCheckBox()
         self.binder.text(self.ai_schift, "settings.ai_schift", tip=False)
-        self.ai_schift.setChecked(settings.ai_schift and installed)
-        self.ai_schift.setEnabled(installed)
+        self.ai_schift.setChecked(settings.ai_schift)
         self._row(None, self.ai_schift)
-        if not installed:
-            self._row(None, self.label("settings.ai_schift_missing", "Guide"))
 
     # ---------------------------------------------------------------- 격자 줄
 
@@ -351,7 +350,7 @@ class SettingsDialog(_Dialog):
                       remember_password=self.remember.isChecked(), retention_days=self.retention.value(),
                       theme=self.theme.currentData(), voice=self.voice_box.currentData(),
                       alias_continue=self.alias_continue.isChecked(),
-                      ai_schift=self.ai_schift.isChecked())
+                      ai_schift=bool(self.ai_schift and self.ai_schift.isChecked()))  # 모델이 없으면 끈다
         try:
             validate_paths(new)
         except SettingsError as e:
