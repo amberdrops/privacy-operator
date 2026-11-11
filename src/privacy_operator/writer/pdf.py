@@ -42,18 +42,6 @@ def _page_chars(page) -> tuple[str, list]:
     return "".join(text), chars
 
 
-def _matches(text: str, plan: ReplacementPlan) -> list[tuple[int, int, str]]:
-    # 쪽 글에는 줄마다 줄바꿈이 들어가 있어 줄에 걸친 값도 찾는 정규식을 쓴다
-    found = [(m.start(), m.end(), i) for i, r in enumerate(plan.rules) for m in r.wrapped.finditer(text)
-             if m.end() > m.start()]
-    found.sort(key=lambda x: (x[2], x[0]))
-    taken: list[tuple[int, int, str]] = []
-    for s, e, i in found:
-        if all(e <= ts or te <= s for ts, te, _ in taken):
-            taken.append((s, e, plan.rules[i].replacement))
-    return taken
-
-
 def write_pdf(src: Path, dst: Path, plan: ReplacementPlan) -> None:
     font_args, font = _font()
     doc = pymupdf.open(src)
@@ -61,7 +49,9 @@ def write_pdf(src: Path, dst: Path, plan: ReplacementPlan) -> None:
         for page in doc:
             text, chars = _page_chars(page)
             writes = []
-            for s, e, replacement in _matches(text, plan):
+            # 쪽 글에는 줄마다 줄바꿈이 들어가 있어 줄에 걸친 값도 찾는다
+            for s, e, i in plan.pick(text, wrapped=True):
+                replacement = plan.rules[i].replacement
                 lines: dict[int, list] = {}
                 for c in chars[s:e]:
                     if c is not None:

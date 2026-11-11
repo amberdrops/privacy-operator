@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPushButton,
-    QStyle,
     QStyledItemDelegate,
     QTableView,
     QVBoxLayout,
@@ -82,8 +81,10 @@ def place_text(f: Finding, voice: Voice) -> str:
 def where_text(f: Finding, voice: Voice) -> str:
     reasons = []
     for by in f.detected_by:
-        if by == "column" and f.location.header:
-            reasons.append(voice.t("by.column", header=f.location.header))
+        if by == "column":
+            # 머리글 줄이 없는 세로 이름표 표(`성명 | 김민수`)는 열 제목이 없다
+            header = f.location.header
+            reasons.append(voice.t("by.column", header=header) if header else voice.t("by.column_plain"))
         else:
             reasons.append(voice.t(f"by.{by}"))
     if f.escalated_by:
@@ -173,10 +174,6 @@ class FindingsModel(QAbstractTableModel):
             self.set_checked(self.ids_at(index.row()), Qt.CheckState(value) == Qt.CheckState.Checked)
             return True
         return False
-
-    def toggle(self, finding_id: str, on: bool | None = None) -> None:
-        on = (finding_id not in self.checked) if on is None else on
-        self.set_checked([finding_id], on)
 
     def set_checked(self, ids, on: bool) -> None:
         for fid in ids:
@@ -349,12 +346,8 @@ class Delegate(QStyledItemDelegate):
         col = index.column()
         r = option.rect.adjusted(PAD, 0, -PAD, 0)
         if col == CHECK:
-            # 체크박스 그림은 칸 가운데(머리 체크박스와 같은 세로줄). 그림이 없는 테마는 Qt 기본 모양
-            state = Qt.CheckState(index.data(Qt.ItemDataRole.CheckStateRole))
-            if not paint_check(p, QRectF(option.rect), state, t):
-                opt = option
-                opt.state &= ~QStyle.StateFlag.State_HasFocus
-                super().paint(p, opt, index)
+            # 체크박스 그림은 칸 가운데(머리 체크박스와 같은 세로줄). 그림이 없는 테마는 화면 색으로 그린다
+            paint_check(p, QRectF(option.rect), Qt.CheckState(index.data(Qt.ItemDataRole.CheckStateRole)), t)
         elif col == TYPE:
             self._type(p, r, f)
         elif col == VALUE:
@@ -632,11 +625,8 @@ class CenteredCheck(QCheckBox):
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
-        drawn = paint_check(p, QRectF(self.rect()), self.checkState(), self.table.itemDelegate().theme,
-                            self.isEnabled())
+        paint_check(p, QRectF(self.rect()), self.checkState(), self.table.itemDelegate().theme, self.isEnabled())
         p.end()
-        if not drawn:
-            super().paintEvent(event)
 
     def hitButton(self, pos) -> bool:  # noqa: N802
         return self.rect().contains(pos)
@@ -742,6 +732,11 @@ class ReviewPage(QWidget):
         self.group_btn.setMinimumHeight(44)
         self.group_btn.toggled.connect(self.set_grouped)
         h.addWidget(self.group_btn)
+        # 풀면 문서에 나온 순서, 고르면 타깃 글자의 가나다순(같은 글자는 나온 순서대로). 2026-11-11
+        self.sort_btn = self._binder.text(QCheckBox(), "view.sort", tip=False)
+        self.sort_btn.setMinimumHeight(44)
+        self.sort_btn.toggled.connect(self.set_sorted)
+        h.addWidget(self.sort_btn)
         h.addStretch(1)
         self.value_label = QLabel()
         self.value_label.setObjectName("Guide")
@@ -781,10 +776,16 @@ class ReviewPage(QWidget):
 
     def set_grouped(self, on: bool) -> None:
         if on:
-            self.show_value(None, keep_grouping=True)
+            self.show_value(None)
             self.groups.reload()
         self.table.setModel(self.group_proxy if on else self.main_proxy)
         self.sync_all_check()
+
+    def set_sorted(self, on: bool) -> None:
+        """가나다순으로 보기. 낱낱 표, 묶음 표, 회색 영역 표를 함께 바꾼다. 풀면 나온 순서로 돌아간다."""
+        for proxy in (self.main_proxy, self.gray_proxy, self.group_proxy):
+            proxy.sort(VALUE if on else -1, Qt.SortOrder.AscendingOrder)
+        self.table._anchor = self.gray_table._anchor = None  # 줄 번호가 바뀌었다(Shift로 이어 고르기의 시작점)
 
     def show_ids(self, ids: list[str]) -> None:
         """송출이 멈춘 뒤: 남은 자리만 낱낱이 본다. '모두 보기'로 풀린다."""
@@ -798,10 +799,10 @@ class ReviewPage(QWidget):
         self.show_all_btn.setVisible(True)
         self.sync_all_check()
 
-    def show_value(self, key: tuple[str, str] | None, keep_grouping: bool = False) -> None:
+    def show_value(self, key: tuple[str, str] | None) -> None:
         """묶음 행을 두 번 누르면 그 값의 발견 위치만 낱낱이 본다. None이면 모두 보기."""
         self.main_proxy.set_filter(value=key, ids=None)
-        if key is not None and self.group_btn.isChecked() and not keep_grouping:
+        if key is not None and self.group_btn.isChecked():
             self.group_btn.setChecked(False)
         self.value_label.setVisible(key is not None)
         self.show_all_btn.setVisible(key is not None)

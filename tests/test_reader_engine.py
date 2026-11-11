@@ -63,33 +63,29 @@ def test_hwpx_engine_call_hides_the_console_window(monkeypatch, tmp_path):
     assert seen["creationflags"] == engine.NO_WINDOW
 
 
-def test_background_validate_hides_the_window_and_reports_a_broken_file(monkeypatch, tmp_path):
-    """한글 파일 구조 검사는 남은 값 검사와 동시에 뒤에서 돈다. 창을 띄우지 않고, 깨진 파일은 실패로 알린다."""
-    import subprocess
-
-    from privacy_operator.writer import hwpx
-
-    seen = {}
-    real = subprocess.Popen
-
-    def spy(*a, **k):
-        seen.update(k)
-        return real(*a, **k)
-
-    monkeypatch.setattr(hwpx.subprocess, "Popen", spy)
-    broken = tmp_path / "broken.hwpx"
-    broken.write_bytes(b"not a zip")
-    pending = hwpx.PendingValidate(broken, tmp_path)
-    assert seen["creationflags"] == engine.NO_WINDOW
+def test_validate_reports_a_broken_file(tmp_path):
+    """한글 파일 구조 검사: 깨진 파일은 실패로 알린다."""
     import pytest
 
-    with pytest.raises(hwpx.HwpxWriteError):
-        pending.finish()
-
-
-def test_background_validate_can_be_cancelled(tmp_path):
     from privacy_operator.writer import hwpx
 
-    pending = hwpx.PendingValidate(tmp_path / "없음.hwpx", tmp_path)
-    pending.cancel()
-    assert pending.proc.poll() is not None
+    broken = tmp_path / "broken.hwpx"
+    broken.write_bytes(b"not a zip")
+    with pytest.raises(hwpx.HwpxWriteError):
+        hwpx.validate(broken, tmp_path)
+
+
+def test_a_workbook_openpyxl_cannot_open_is_a_read_failure_not_a_crash(reader, monkeypatch):
+    """메모와 숨긴 시트를 읽다 멈춘 엑셀(서식 표가 어긋난 파일)은 읽지 못한 문서로 돌린다.
+    예외가 그대로 올라가면 화면의 읽기 스레드에서 프로그램이 꺼진다(2026-11-11)."""
+    import pytest
+
+    from privacy_operator.reader import read
+
+    def broken(path, blocks):
+        raise IndexError("list index out of range")
+
+    monkeypatch.setattr(read, "xlsx_extras", broken)
+    with pytest.raises(read.ReadError) as e:
+        reader.read(Path("samples") / "만족도조사_샘플.xlsx")
+    assert e.value.code == "EXTRAS_FAILED" and "샘플" not in str(e.value)

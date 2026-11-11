@@ -20,12 +20,14 @@ from privacy_operator.detect.dictionaries import (
     NAME,
     NAME_HEADERS,
     NAME_LABELS,
+    TOP_SURNAMES,
     looks_like_name,
     normalize_header,
     normalize_value,
 )
 from privacy_operator.detect.escalate import escalate
 from privacy_operator.detect.finding import (
+    BY_COLUMN_SHAPE,
     BY_CONFIRMED,
     BY_PROPAGATION,
     HINT_EXCEPTION,
@@ -36,8 +38,16 @@ from privacy_operator.detect.finding import (
     default_action,
     default_status,
 )
-from privacy_operator.detect.patterns import Candidate, value_pattern
-from privacy_operator.detect.rules import RuleSet, merge
+from privacy_operator.detect.patterns import (
+    Candidate,
+    ValueIndex,
+    fold,
+    is_spaced_name,
+    probe,
+    spaced_known,
+    value_pattern,
+)
+from privacy_operator.detect.rules import RuleSet, _birth_after_name, _is_title, _weak_name_ok, merge, spaced_names
 from privacy_operator.reader.blocks import CELL, COMMENT, METADATA, Block, ReadResult
 
 log = logging.getLogger(__name__)
@@ -69,6 +79,9 @@ def detect(results: list[ReadResult], config: DetectConfig | None = None) -> lis
     for di, res in enumerate(results):
         for block in res.blocks:
             per_block[(di, block.block_id)] = merge(rules.block_candidates(block))
+        for block, c in _name_columns(res, rules):
+            key = (di, block.block_id)
+            per_block[key] = merge(per_block[key] + [c])
 
     if cfg.propagate_names:
         _propagate(results, per_block, exceptions)
@@ -95,8 +108,7 @@ def detect(results: list[ReadResult], config: DetectConfig | None = None) -> lis
                     location=block.location, sentence=_sentence_of(bounds, c.start),
                     detected_by=tuple(sorted(c.detected_by)), tier=c.tier,
                     review_status=default_status(c.tier), action=default_action(c.tier, c.category),
-                    role_hint=c.role, hidden=block.hidden, exclude_hint=c.exclude_hint,
-                    validation=c.validation,
+                    hidden=block.hidden, exclude_hint=c.exclude_hint, validation=c.validation,
                 ))
 
     escalate(findings)
@@ -107,13 +119,12 @@ def detect(results: list[ReadResult], config: DetectConfig | None = None) -> lis
     return findings
 
 
-def rescan(results: list[ReadResult], findings: list[Finding], sources: list[Finding],
-           word_start: bool = False) -> list[Finding]:
+def rescan(results: list[ReadResult], findings: list[Finding], sources: list[Finding]) -> list[Finding]:
     """사람이 확정한 값(sources)을 모든 문서에서 다시 찾는다(7단계 '확정값 자동 재검색').
 
     아직 아무 탐지도 없는 자리만 새 탐지로 만든다. 새 탐지는 '검토' 등급, '대기' 상태다(자동 확정 금지).
     회색 영역 낱개 값은 다시 찾지 않는다(그 자체로는 식별 정보가 아니다).
-    기본은 차단 목록과 같은 기준으로 더 긴 낱말 속 값까지 찾는다(2026-11-08). 낱말 속 자리를 건너뛰면 그 자리는
+    차단 목록과 같은 기준으로 더 긴 낱말 속 값까지 찾는다(2026-11-08). 낱말 속 자리를 건너뛰면 그 자리는
     송출 직전 차단 목록 검사에서 결국 걸려, 판정이 100%인데도 작전 개시가 멈췄다. 확정하는 순간 대기로 보여 준다.
     """
     taken: dict[tuple[str, str], list[tuple[int, int]]] = {}
@@ -124,14 +135,24 @@ def rescan(results: list[ReadResult], findings: list[Finding], sources: list[Fin
         if tail.isdigit():  # AI 탐지(`D01-A0001`)는 따로 매긴다
             last[f.file_id] = max(last.get(f.file_id, 0), int(tail))
 
-    patterns, seen = [], set()
+    wanted, seen = [], set()
     for src in sources:
         if src.category in GRAY_CATEGORIES or len(src.raw_value.strip()) < 2:
             continue
         key = (src.category, normalize_value(src.raw_value))
         if key not in seen:
             seen.add(key)
-            patterns.append((src, value_pattern(src.category, src.raw_value, word_start=word_start)))
+            wanted.append(src)
+    # 확정값이 수천 개인 큰 명단: 블록마다 그 블록에 있을 수 있는 값만 정규식으로 본다
+    index = ValueIndex([probe(src.category, src.raw_value) for src in wanted])
+    compiled: dict[int, re.Pattern] = {}
+
+    # 확정한 이름이 있는 자리. 그 바로 뒤 괄호 속 날짜를 생년월일 후보로 낸다(아래)
+    named: dict[tuple[str, str], list[Candidate]] = {}
+    for src in sources:
+        if src.category == NAME:
+            named.setdefault((src.file_id, src.block_id), []).append(
+                Candidate(src.start, src.end, NAME, TIER_REVIEW, {BY_CONFIRMED}))
 
     new: list[Finding] = []
     for di, res in enumerate(results):
@@ -139,27 +160,89 @@ def rescan(results: list[ReadResult], findings: list[Finding], sources: list[Fin
         rows = _row_index(res)
         for block in res.blocks:
             spans = taken.setdefault((file_id, block.block_id), [])
-            for src, pattern in patterns:
-                for m in pattern.finditer(block.text):
-                    s, e = m.start(), m.end()
-                    if any(s < te and ts < e for ts, te in spans):
-                        continue
-                    spans.append((s, e))
-                    last[file_id] = last.get(file_id, 0) + 1
-                    c = Candidate(s, e, src.category, TIER_REVIEW, {BY_CONFIRMED}, role=src.role_hint)
-                    new.append(Finding(
-                        finding_id=f"{file_id}-{last[file_id]:04d}", file_id=file_id, filename=res.source_name,
-                        format=res.format, category=src.category, raw_value=block.text[s:e],
-                        context=_context(block, c, rows), block_id=block.block_id, start=s, end=e,
-                        location=block.location, sentence=_sentence_of(_sentences(block.text), s),
-                        detected_by=(BY_CONFIRMED,), tier=TIER_REVIEW, review_status=STATUS_PENDING,
-                        action=default_action(TIER_REVIEW, src.category), role_hint=src.role_hint,
-                        hidden=block.hidden))
+            folded = fold(block.text)  # 값 정규식은 모양을 맞춘 글에서 쓴다. 위치는 원문과 같다
+            names = named.get((file_id, block.block_id), [])
+
+            def add(c: Candidate) -> None:
+                if any(c.start < te and ts < c.end for ts, te in spans):
+                    return
+                spans.append((c.start, c.end))
+                last[file_id] = last.get(file_id, 0) + 1
+                new.append(Finding(
+                    finding_id=f"{file_id}-{last[file_id]:04d}", file_id=file_id, filename=res.source_name,
+                    format=res.format, category=c.category, raw_value=block.text[c.start:c.end],
+                    context=_context(block, c, rows), block_id=block.block_id, start=c.start, end=c.end,
+                    location=block.location, sentence=_sentence_of(_sentences(block.text), c.start),
+                    detected_by=tuple(c.detected_by), tier=TIER_REVIEW, review_status=STATUS_PENDING,
+                    action=default_action(TIER_REVIEW, c.category), hidden=block.hidden))
+                if c.category == NAME:
+                    names.append(c)
+
+            for i in index.candidates(folded):
+                src = wanted[i]
+                if i not in compiled:
+                    compiled[i] = value_pattern(src.category, src.raw_value)
+                for m in compiled[i].finditer(folded):
+                    add(Candidate(m.start(), m.end(), src.category, TIER_REVIEW, {BY_CONFIRMED}))
+            # 이름인지 몰라 건너뛴 날짜: 확정한 이름(과 방금 다시 찾은 그 이름) 바로 뒤 괄호 속 날짜(`김민수(2026. 3. 1.)`)
+            if names:
+                for c in _birth_after_name(folded, names):
+                    add(c)
     for f in new:
         log.debug("재검색 %s 유형=%s", f.finding_id, f.category)
     if new:
         log.info("확정값 재검색: 새 탐지 %d건", len(new))
     return new
+
+
+def _name_columns(res: ReadResult, rules: RuleSet) -> list[tuple[Block, Candidate]]:
+    """열 제목이 사전에 없거나 비어 있어도 값 대부분이 이름 모양이면 그 열의 이름 모양 칸을 '검토' 후보로 낸다
+    (제목이 `명단`이거나 없는 명단, 2026-11-10).
+
+    이름 모양은 흔한 낱말에도 많아서(연구부, 정보부) 열 전체를 본다: 값이 넷 이상이고 열에 일곱은 이름 모양,
+    그 가운데 절반 넘게 세 글자, 셋에 하나는 흔한 성씨, 끝 글자가 한 글자로 몰리지 않고, 값이 서로 다를 것.
+    """
+    columns: dict[tuple[int, int], list[Block]] = {}
+    for b in res.blocks:
+        loc = b.location
+        if b.kind == CELL and loc.table_index is not None and loc.col is not None:
+            columns.setdefault((loc.table_index, loc.col), []).append(b)
+    out = []
+    for cells in columns.values():
+        body = [b for b in cells if not b.is_header and b.text.strip()]
+        if len(body) < 4:
+            continue
+        header = rules.header_key(body[0].location.header)
+        if rules._known_header(header) or rules._names_under(header):
+            continue  # 제목으로 이미 본 열
+        named = [(b, span) for b in cells if (span := _whole_name(b.text))]
+        # 머리글로 읽힌 칸은 뚜렷한 이름 모양일 때만(첫 줄부터 값인 표). `명부` 같은 제목은 아니다
+        named = [(b, (s, e)) for b, (s, e) in named
+                 if not b.is_header or _weak_name_ok(re.sub(r"\s", "", b.text[s:e]))]
+        names = [re.sub(r"\s", "", b.text[s:e]) for b, (s, e) in named if not b.is_header]
+        n = len(names)
+        if n < 4 or n < 0.7 * len(body):
+            continue
+        last = Counter(name[-1] for name in names).most_common(1)[0][1]
+        if (sum(len(name) == 3 for name in names) <= n / 2 or sum(name[0] in TOP_SURNAMES for name in names) < n / 3
+                or last > max(2, 0.4 * n) or len(set(names)) < 0.6 * n):
+            continue
+        out += [(b, Candidate(s, e, NAME, TIER_REVIEW, {BY_COLUMN_SHAPE})) for b, (s, e) in named]
+    return out
+
+
+def _whole_name(text: str) -> tuple[int, int] | None:
+    """칸 글 전체가 이름 하나일 때 그 범위(`김민수`, `홍 길 동`)."""
+    text = fold(text)
+    start = len(text) - len(text.lstrip())
+    end = len(text.rstrip())
+    value = text[start:end]
+    if looks_like_name(value) and not _is_title(value):
+        return start, end
+    return next(((s, e) for s, e in spaced_names(text) if (s, e) == (start, end)), None)
+
+
+_GAP = re.compile(r"[가-힣]\s+[가-힣]")  # 빈칸을 사이에 둔 한글(전각 빈칸 포함). 없으면 띄어 쓴 이름도 없다
 
 
 def _propagate(results, per_block, exceptions) -> None:
@@ -170,6 +253,8 @@ def _propagate(results, per_block, exceptions) -> None:
         text = texts[key]
         for c in cands:
             value = text[c.start:c.end]
+            if is_spaced_name(value):  # 띄어 쓴 이름(`홍 길 동`)은 붙여 쓴 이름으로 찾는다
+                value = re.sub(r"\s", "", value)
             if (c.category == NAME and c.tier == TIER_CERTAIN and c.exclude_hint is None
                     and looks_like_name(value) and normalize_value(value) not in exceptions):
                 names.add(value)
@@ -183,9 +268,15 @@ def _propagate(results, per_block, exceptions) -> None:
                 if m.start() > 0 and re.match(r"[가-힣]", block.text[m.start() - 1]):
                     continue  # 더 긴 낱말의 뒷부분
                 new.append(Candidate(m.start(), m.end(), NAME, TIER_REVIEW, {BY_PROPAGATION}))
+            # 같은 이름을 한 글자씩 띄어 쓴 자리(`김 민 수`, `담임 허   준`). 확정한 뒤 재검색과 차단 목록이 보는 자리와 같다
+            if _GAP.search(block.text):
+                new += [Candidate(s, e, NAME, TIER_REVIEW, {BY_PROPAGATION})
+                        for s, e in spaced_known(fold(block.text), names)]
             if new:
                 key = (di, block.block_id)
-                per_block[key] = merge(per_block[key] + new)
+                found = merge(per_block[key] + new)
+                # 이제 이름으로 잡힌 낱말 바로 뒤 괄호 속 날짜도 본다(`허준(700101)`, 블록만 볼 때는 이름인지 몰랐다)
+                per_block[key] = merge(found + _birth_after_name(fold(block.text), found))
 
 
 def _sentences(text: str) -> list[int]:

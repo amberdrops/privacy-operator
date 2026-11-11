@@ -66,6 +66,29 @@ def test_every_voice_key_used_in_code_exists():
     assert not missing
 
 
+@pytest.mark.parametrize("name", ["plain", "mission"])
+def test_reason_text_fills_every_placeholder(name):
+    """머리글 줄이 없는 세로 이름표 표(`성명 | 김민수`)에서 근거 글에 `{header} 열`이 그대로 나왔다(2026-11-10).
+    탐지 근거, 승격 근거, 제외 후보 사유를 모두 넣어 본다(문구표에 없는 근거가 생기면 여기서 걸린다)."""
+    from privacy_operator.detect import finding as F
+    from privacy_operator.reader.blocks import Location
+    from privacy_operator.ui.review import where_text
+    from privacy_operator.ui.voice import Voice
+
+    def all_of(prefix):
+        return [v for k, v in vars(F).items() if k.startswith(prefix)]
+
+    voice = Voice(name)
+    for loc in (Location(table_index=0, row=1, col=1), Location(table_index=0, row=1, col=1, header="성명")):
+        for esc in all_of("ESC_"):
+            for hint in all_of("HINT_"):
+                f = F.Finding("D01-0001", "D01", "a.hwpx", "hwpx", "이름", "김민수", "", "t000-r001-c001", 0, 3, loc,
+                              0, tuple(all_of("BY_")), "검토", "대기", "가명처리", escalated_by=esc, exclude_hint=hint)
+                text = where_text(f, voice)
+                assert "{" not in text and "}" not in text
+        assert ("성명 열" in text) == bool(loc.header)
+
+
 # ---------------------------------------------------------------- 테마
 
 @pytest.mark.parametrize("name", available_themes())

@@ -39,16 +39,26 @@ def load_bundled_fonts() -> None:
     if ASSETS_FONTS.is_dir():
         for p in sorted(ASSETS_FONTS.glob("*.[ot]tf")):
             QFontDatabase.addApplicationFont(str(p))
+    _families.clear()
+
+
+# 고른 글꼴 이름. 표를 그릴 때마다 font()를 부르므로 깔린 글꼴 목록을 매번 훑지 않게 담아 둔다
+_families: dict[tuple[str, ...], str] = {}
+
+
+def _pick(wanted: tuple[str, ...]) -> str:
+    if wanted not in _families:
+        installed = set(QFontDatabase.families())
+        _families[wanted] = next((f for f in wanted if f in installed), wanted[-1])
+    return _families[wanted]
 
 
 def family() -> str:
-    installed = set(QFontDatabase.families())
-    return next((f for f in FAMILIES if f in installed), FAMILIES[-1])
+    return _pick(tuple(FAMILIES))
 
 
 def mono_family() -> str:
-    installed = set(QFontDatabase.families())
-    return next((f for f in MONO if f in installed), MONO[-1])
+    return _pick(tuple(MONO))
 
 
 def semibold_weight() -> int:
@@ -91,14 +101,14 @@ def smooth_pixmap(path, px: int) -> QPixmap:
     return _scaled[key]
 
 
-def paint_check(p: QPainter, rect: QRectF, state: Qt.CheckState, t: Theme, enabled: bool = True) -> bool:
+def paint_check(p: QPainter, rect: QRectF, state: Qt.CheckState, t: Theme, enabled: bool = True) -> None:
     """rect 가운데에 체크박스 그림(켜짐 = 진주 타일, 꺼짐 = 로즈골드 테두리, 반쯤 = 테두리 + 가로 막대).
-    테마에 그림이 없으면 화면 색으로 그린다(_paint_plain_check). 늘 True."""
+    테마에 그림이 없으면 화면 색으로 그린다(_paint_plain_check)."""
     on, off = t.asset("check_on"), t.asset("check_off")
     box = QRectF(rect.center().x() - CHECK_PX / 2, rect.center().y() - CHECK_PX / 2, CHECK_PX, CHECK_PX)
     if not (on and off):
         _paint_plain_check(p, box, state, t, enabled)
-        return True
+        return
     ratio = p.device().devicePixelRatioF() if p.device() else 1.0
     pm = smooth_pixmap(on if state == Qt.CheckState.Checked else off, round(CHECK_PX * ratio))
     p.save()
@@ -116,7 +126,6 @@ def paint_check(p: QPainter, rect: QRectF, state: Qt.CheckState, t: Theme, enabl
         p.setBrush(grad)
         p.drawRoundedRect(bar, 1.5, 1.5)
     p.restore()
-    return True
 
 
 def _paint_plain_check(p: QPainter, box: QRectF, state: Qt.CheckState, t: Theme, enabled: bool) -> None:

@@ -64,6 +64,19 @@ class DocumentReader:
             raise ReadError(fmt, str(result.code or "PARSE_FAILED"))
         raw = result.raw
         blocks, blind = convert(raw, fmt)
+        try:
+            blocks, blind = self._extras(path, fmt, blocks, blind)
+        except ReadError:
+            raise
+        except Exception:  # noqa: BLE001
+            # 메모와 숨긴 시트, 문서 속성을 따로 읽다 멈춘 문서(서식 표가 어긋난 엑셀 등). 그 부분을 검사하지 못한 채
+            # 넘기지 않고 읽지 못한 문서로 돌린다. 화면까지 오류가 올라가 프로그램이 꺼지던 것을 막는다(2026-11-11)
+            raise ReadError(fmt, "EXTRAS_FAILED") from None
+        return ReadResult(source_name=path.name, format=fmt, blocks=blocks, blind_spots=_unique(blind),
+                          page_count=raw.get("pageCount"))
+
+    @staticmethod
+    def _extras(path: Path, fmt: str, blocks: list, blind: list) -> tuple[list, list]:
         if fmt == "xlsx":
             blocks = xlsx_extras(path, blocks)
             blind += zip_blind_spots(path, fmt)
@@ -74,8 +87,7 @@ class DocumentReader:
             # PDF는 쪽마다 직접 본 결과로 kordoc의 OCR 판정과 이미지 표시를 바꾼다
             blind = [b for b in blind if b.kind not in (NEEDS_OCR, IMAGE) and b.detail != "NEEDS_OCR"]
             blind += pdf_blind_spots(path)
-        return ReadResult(source_name=path.name, format=fmt, blocks=blocks, blind_spots=_unique(blind),
-                          page_count=raw.get("pageCount"))
+        return blocks, blind
 
 
 def _unique(spots: list[BlindSpot]) -> list[BlindSpot]:
@@ -92,9 +104,3 @@ def _unique(spots: list[BlindSpot]) -> list[BlindSpot]:
         elif old.detail.isdigit() and b.detail.isdigit() and int(b.detail) > int(old.detail):
             merged[key] = b  # 개수는 큰 쪽(kordoc과 zip 검사가 같은 그림을 세었을 때)
     return list(merged.values())
-
-
-def read_document(path: str | Path) -> ReadResult:
-    """문서 하나만 읽을 때. 여러 개를 읽으면 DocumentReader를 재사용한다(엔진을 한 번만 띄운다)."""
-    with DocumentReader() as reader:
-        return reader.read(path)

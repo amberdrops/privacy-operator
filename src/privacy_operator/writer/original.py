@@ -20,12 +20,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from privacy_operator.writer.plan import ReplacementPlan
-from privacy_operator.writer.xmlsweep import text_segments
+from privacy_operator.writer.xmlsweep import decode_text, text_segments
 
 log = logging.getLogger(__name__)
 
 OUTPUT_SUFFIX = {"hwpx": ".hwpx", "hwp": ".hwpx", "pdf": ".pdf", "xlsx": ".xlsx"}
 _BINARY = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".emf", ".wmf", ".bin", ".ole", ".ttf", ".otf")
+_GAP = "\x00"  # 글 조각을 이을 때 사이에 끼우는 글자. 숫자도 공백도 아니고 문서 글에 나오지 않는다
+# 재검사는 남은 것이 하나라도 있으면 그 사본을 버린다. 곳마다 이만큼 찾으면 더 찾지 않는다(기록용으로는 충분하다)
+_ENOUGH = 20
 
 # 결과 사유
 OK = "ok"
@@ -53,17 +56,14 @@ def _zip_leftovers(path: Path, plan: ReplacementPlan) -> tuple[list[str], list[s
         for name in z.namelist():
             if name.endswith("/") or name.lower().endswith(_BINARY):
                 continue
-            data = z.read(name)
-            text = None
-            for enc in ("utf-8-sig", "utf-16"):
-                try:
-                    text = data.decode(enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            if text is None:
+            decoded = decode_text(z.read(name))
+            if decoded is None:
                 continue
-            hits = plan.leftovers(text) + [i for seg in text_segments(text) for i in plan.leftovers(seg)]
+            text = decoded[0]
+            # 태그 사이 글과 속성 값은 한 글로 이어 한 번에 본다(조각마다 보면 큰 명단에서 14초 걸렸다).
+            # 조각 사이에는 어떤 값에도 없는 글자를 끼워 값이 조각을 넘어 이어지지 않게 한다
+            hits = (plan.leftovers(text, limit=_ENOUGH)
+                    + plan.leftovers(_GAP.join(text_segments(text)), limit=_ENOUGH))
             if hits:
                 places.append(name)
                 ids += hits
@@ -76,7 +76,7 @@ def _pdf_leftovers(path: Path, plan: ReplacementPlan) -> tuple[list[str], list[s
     places, ids = [], []
 
     def check(where: str, text: str) -> None:
-        hits = plan.leftovers(text or "", wrapped=True)  # 줄에 걸친 값도 남은 것으로 본다
+        hits = plan.leftovers(text or "", wrapped=True, limit=_ENOUGH)  # 줄에 걸친 값도 남은 것으로 본다
         if hits:
             places.append(where)
             ids.extend(hits)
@@ -98,11 +98,16 @@ def verify(path: Path, fmt: str, plan: ReplacementPlan, reader) -> tuple[list[st
     """남은 곳과 finding_id. 둘 다 비면 통과."""
     places, ids = [], []
     if reader is not None:
-        for b in reader.read(path).blocks:
-            hits = plan.leftovers(b.text)
-            if hits:
-                places.append(b.block_id)
-                ids += hits
+        blocks = reader.read(path).blocks
+        # 먼저 모든 블록을 한 글로 이어 본다. 남은 것이 있을 때만 어느 블록인지 찾는다
+        if plan.leftovers(_GAP.join(b.text for b in blocks), limit=1):
+            for b in blocks:
+                hits = plan.leftovers(b.text, limit=_ENOUGH)
+                if hits:
+                    places.append(b.block_id)
+                    ids += hits
+                    if len(places) >= _ENOUGH:
+                        break
     p2, i2 = _pdf_leftovers(path, plan) if fmt == "pdf" else _zip_leftovers(path, plan)
     return places + p2, list(dict.fromkeys(ids + i2))
 
@@ -121,7 +126,6 @@ def write_original(src: Path, fmt: str, plan: ReplacementPlan, out_dir: Path, st
         staged = work / f"output{suffix}"
         try:
             if fmt in ("hwpx", "hwp"):
-                # 구조 검사를 남은 값 검사와 동시에 돌려 봤지만 엔진 두 개가 서로 느려져 더 오래 걸렸다(2026-11-10)
                 write_hwpx(src, staged, plan, work, is_hwp=(fmt == "hwp"), reader=reader)
             elif fmt == "pdf":
                 write_pdf(src, staged, plan)

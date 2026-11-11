@@ -9,8 +9,6 @@ from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 _SVG = {
-    "crown": '<path d="M3 17 L5 7 L9.5 11.5 L12 5 L14.5 11.5 L19 7 L21 17 Z" fill="{c}"/>'
-             '<rect x="3" y="18.5" width="18" height="2.5" rx="1" fill="{c}"/>',
     "heart": '<path d="M12 21 C5 15.5 2.5 12.5 2.5 8.8 C2.5 6 4.6 4 7.2 4 C9 4 10.9 5.1 12 6.8 '
              'C13.1 5.1 15 4 16.8 4 C19.4 4 21.5 6 21.5 8.8 C21.5 12.5 19 15.5 12 21 Z" fill="{c}"/>',
     # 대기 판정(핑크): 하트 보석과 같은 하트를 테두리로만
@@ -18,21 +16,15 @@ _SVG = {
                      'C13.1 5.7 14.8 4.7 16.4 4.7 C18.7 4.7 20.6 6.5 20.6 9 C20.6 12.4 18.4 15.2 12 20.2 Z" fill="none" '
                      'stroke="{c}" stroke-width="1.9" stroke-linejoin="round"/>',
     "power": '<circle cx="12" cy="12" r="7" fill="{c}"/>',
-    "lock": '<rect x="5" y="10.5" width="14" height="10" rx="2" fill="{c}"/>'
-            '<path d="M8 10.5 V7.5 A4 4 0 0 1 16 7.5 V10.5" fill="none" stroke="{c}" stroke-width="2.2"/>',
     # 열린 자물쇠: 고리 오른쪽이 몸통에서 떨어져 위로 들려 있다(금고 열림)
     "lock_open": '<rect x="5" y="10.5" width="14" height="10" rx="2" fill="{c}"/>'
                  '<path d="M8 10.5 V6.5 A4 4 0 0 1 16 6.5 V7.5" fill="none" stroke="{c}" stroke-width="2.2" '
                  'stroke-linecap="round"/>',
     "warning": '<path d="M12 3 L22 20.5 H2 Z" fill="{c}"/>'
                '<rect x="11" y="9" width="2" height="6.5" fill="{bg}"/><rect x="11" y="17" width="2" height="2" fill="{bg}"/>',
-    "star": '<path d="M12 2.5 L14.6 9.2 L21.5 9.6 L16.1 14 L17.9 21 L12 17 L6.1 21 L7.9 14 L2.5 9.6 L9.4 9.2 Z" '
-            'fill="{c}"/>',
     "monitor": '<rect x="3" y="4" width="18" height="12.5" rx="2" fill="none" stroke="{c}" stroke-width="2"/>'
                '<rect x="9" y="18.5" width="6" height="2" rx="1" fill="{c}"/>',
     # 작전 패널 목록용 선 아이콘
-    "board": '<g fill="none" stroke="{c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-             '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></g>',
     "restore": '<g fill="none" stroke="{c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
                '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></g>',
     "plus": '<path d="M12 5v14M5 12h14" fill="none" stroke="{c}" stroke-width="2" stroke-linecap="round"/>',

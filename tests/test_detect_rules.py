@@ -57,8 +57,8 @@ def test_rrn_with_impossible_month_is_still_found():
 
 
 def test_rrn_without_hyphen_is_review_and_foreigner_number_is_separate():
-    found = run(para("번호 9013011000000, 외국인 900101-5000000"))
-    assert values(found, category="주민등록번호", tier=TIER_REVIEW) == ["9013011000000"]
+    found = run(para("번호 9001011000000, 외국인 900101-5000000"))
+    assert values(found, category="주민등록번호", tier=TIER_REVIEW) == ["9001011000000"]
     assert values(found, category="외국인등록번호") == ["900101-5000000"]
 
 
@@ -258,8 +258,6 @@ def test_sign_off_line_finds_every_signer_but_not_titles():
     """`기안자 주무관 박서연  검토자 행정실장 김민수  결재권자 교장 이도윤`: 직위 뒤 이름을 모두 찾고, 직위는 이름이 아니다."""
     found = run(para("기안자 주무관 박서연  검토자 행정실장 김민수  결재권자 교장 이도윤"))
     assert sorted(values(found, category="이름")) == ["김민수", "박서연", "이도윤"]
-    roles = {f.raw_value: f.role_hint for f in found if f.category == "이름"}
-    assert roles["박서연"] == "주무관" and roles["이도윤"] == "교장"
 
 
 def test_title_alone_is_not_a_name():
@@ -280,19 +278,17 @@ def test_title_header_takes_only_name_like_values():
     assert values(found, category="이름") == ["오세린"]
 
 
-@pytest.mark.parametrize("text,name,role", [
-    ("행정연수담당사무관 박서연", "박서연", "사무관"),
-    ("교무부장 김민수", "김민수", "부장"),
-    ("교육행정주무관 이도윤", "이도윤", "주무관"),
-    ("김민수 교무부장과 협의", "김민수", "부장"),
-    ("검토자 행정지원과장 오세린", "오세린", "과장"),
+@pytest.mark.parametrize("text,name", [
+    ("행정연수담당사무관 박서연", "박서연"),
+    ("교무부장 김민수", "김민수"),
+    ("교육행정주무관 이도윤", "이도윤"),
+    ("김민수 교무부장과 협의", "김민수"),
+    ("검토자 행정지원과장 오세린", "오세린"),
 ])
-def test_compound_titles_before_and_after_names(text, name, role):
-    """직위로 끝나는 합성어(앞에 업무, 부서 이름이 붙은 직위)도 직위로 본다. 가명코드 역할은 끝의 직위."""
+def test_compound_titles_before_and_after_names(text, name):
+    """직위로 끝나는 합성어(앞에 업무, 부서 이름이 붙은 직위)도 직위로 본다."""
     found = run(para(text))
-    names = [f for f in found if f.category == "이름"]
-    assert [f.raw_value for f in names] == [name]
-    assert names[0].role_hint == role
+    assert values(found, category="이름") == [name]
 
 
 @pytest.mark.parametrize("text", ["교무부장회의 일정 안내", "학년부장 협의회 자료", "행정연수담당사무관 업무 분장"])
@@ -300,18 +296,16 @@ def test_compound_titles_alone_are_not_names(text):
     assert not values(run(para(text)), category="이름")
 
 
-@pytest.mark.parametrize("text,name,role", [
-    ("원 장 박서연", "박서연", "원장"),
-    ("교 장  이도윤", "이도윤", "교장"),
-    ("교   감 정하람", "정하람", "교감"),  # 글자 사이 세 칸
-    ("기안자 주 무 관 김민수  결재권자 교 감 오세린", "김민수", "주무관"),
-    ("오세린 원 장과 협의", "오세린", "원장"),
+@pytest.mark.parametrize("text,names", [
+    ("원 장 박서연", ["박서연"]),
+    ("교 장  이도윤", ["이도윤"]),
+    ("교   감 정하람", ["정하람"]),  # 글자 사이 세 칸
+    ("기안자 주 무 관 김민수  결재권자 교 감 오세린", ["김민수", "오세린"]),
+    ("오세린 원 장과 협의", ["오세린"]),
 ])
-def test_spaced_titles_in_sign_off_lines(text, name, role):
+def test_spaced_titles_in_sign_off_lines(text, names):
     """결재란은 칸을 맞추려고 직위 글자 사이를 띄운다(`원 장`, `교 감`). 띄어 써도 같은 직위다."""
-    names = [f for f in run(para(text)) if f.category == "이름"]
-    assert name in [f.raw_value for f in names]
-    assert next(f for f in names if f.raw_value == name).role_hint == role
+    assert values(run(para(text)), category="이름") == names
 
 
 def test_spaced_title_in_sign_off_table_cell():
@@ -328,7 +322,6 @@ def test_spaced_titles_do_not_make_names_from_words(text):
 def test_title_then_name_with_colon_paren_or_nim(text):
     names = [f for f in run(para(text)) if f.category == "이름"]
     assert len(names) == 1 and names[0].raw_value in ("박서연", "이도윤")
-    assert names[0].role_hint in ("원장", "교장")
 
 
 @pytest.mark.parametrize("word", ["전결", "대결", "서명", "공석", "출장"])
@@ -355,7 +348,6 @@ def test_final_approver_with_sign_date_between_title_and_name(text):
     """최종 결재자는 직위와 이름 사이에 결재 날짜가 찍힌다(2026-11-09 사용자 문서)."""
     names = [f for f in run(para(text)) if f.category == "이름"]
     assert "박서연" in [f.raw_value for f in names]
-    assert next(f for f in names if f.raw_value == "박서연").role_hint == "원장"
 
 
 @pytest.mark.parametrize("header,cell", [
@@ -383,7 +375,6 @@ def test_sign_off_table_with_titles_in_the_left_column():
                       ["원 장", "2026. 10. 7.\n박서연"], ["협조자", ""]))
     names = {f.raw_value: f for f in found if f.category == "이름"}
     assert set(names) == {"김민수", "정하람", "박서연"}
-    assert names["박서연"].role_hint == "원장"
 
 
 def test_left_label_in_the_first_row_with_a_sign_date():

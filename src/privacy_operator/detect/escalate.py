@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from privacy_operator.detect.dictionaries import GRAY_CATEGORIES, INDIRECT, NAME
+from privacy_operator.detect.dictionaries import GRAY_CATEGORIES, INDIRECT, NAME, normalize_value
 from privacy_operator.detect.finding import (
     ACTION_ALIAS,
     ACTION_KEEP,
@@ -41,10 +41,11 @@ def _is_gray(f: Finding) -> bool:
 
 def _pairs(gray: list[Finding]) -> bool:
     """서로 다른 항목이 둘 이상인가. 회색 영역 값을 품은 간접식별 후보는 그 값과 같은 글자이므로 따로 세지 않는다.
-    (세면 AI 후보 하나가 안의 값을 '검토'로 올린다. AI 판단만으로는 올리지 않는다.)"""
+    (세면 AI 후보 하나가 안의 값을 '검토'로 올린다. AI 판단만으로는 올리지 않는다.)
+    같은 값이 두 번 나온 것도 하나로 센다: `허준 주무관, 김솔 주무관`의 주무관 둘은 조합이 아니다(2026-11-10)."""
     distinct = [f for f in gray if not (f.category == INDIRECT and any(
         o is not f and o.start < f.end and f.start < o.end and o.block_id == f.block_id for o in gray))]
-    return len(distinct) >= 2
+    return len({normalize_value(f.raw_value) for f in distinct}) >= 2
 
 
 def _is_name(f: Finding) -> bool:

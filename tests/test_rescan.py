@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from privacy_operator.detect.finding import (
     STATUS_EXCLUDED,
     STATUS_PENDING,
     TIER_REVIEW,
+    Finding,
 )
 from privacy_operator.mission.package import ProcessingRecord
 from privacy_operator.settings import Settings
@@ -39,7 +41,7 @@ def test_rescan_finds_confirmed_name_in_other_documents():
     assert [(f.file_id, f.raw_value, f.start) for f in new] == [("D02", "김민수", 0)]
     f = new[0]
     assert (f.tier, f.review_status, f.detected_by) == (TIER_REVIEW, STATUS_PENDING, (BY_CONFIRMED,))
-    assert f.role_hint == src[0].role_hint and f.context
+    assert f.context
     assert f.finding_id not in {x.finding_id for x in found}
 
 
@@ -60,6 +62,45 @@ def test_rescan_matches_reformatted_numbers():
     src = _confirm(found, category="전화")
     [new] = rescan([a], found, src)
     assert new.raw_value == "010 0000 0012"
+
+
+def test_confirmed_two_letter_name_is_found_written_apart():
+    """붙여 쓴 두 글자 이름을 확정하면 띄어 쓴 꼴도 대기로 올라온다(빈칸이 몇 칸이든). 남으면 차단 목록에 걸린다."""
+    a = doc(para("교장 허준"), para("담임 허   준, 불허 준수", 1))
+    found = detect([a])
+    assert [f.block_id for f in found if f.category == "이름"] == ["b0000"]
+    new = rescan([a], found, _confirm(found, raw_value="허준"))
+    assert [(f.raw_value, f.review_status) for f in new] == [("허   준", STATUS_PENDING)]
+    assert blocklist_hits("담임 허 준", found) and not blocklist_hits("불허 준수", found)
+
+
+def test_confirmed_name_brings_the_date_in_brackets_after_it():
+    """이름인지 몰라 건너뛴 괄호 속 날짜(올해 날짜, 두 글자 이름 뒤)는 그 이름을 확정하면 대기로 올라온다."""
+    year = date.today().year
+    a = doc(para("오전은 김민수 강사가 맡고 허준 주무관이 돕는다"), name="a.hwpx")
+    b = doc(para(f"김민수({year}. 3. 1.) 전입, 허준(700101) 전출"), name="b.pdf")
+    found = detect([a, b])
+    assert [f.file_id for f in found if f.category in ("이름", "생년월일")] == ["D01", "D01"]
+    new = rescan([a, b], found, _confirm(found, raw_value="김민수"))
+    assert [(f.file_id, f.category, f.raw_value, f.tier, f.review_status) for f in new] == [
+        ("D02", "이름", "김민수", TIER_REVIEW, STATUS_PENDING),
+        ("D02", "생년월일", f"{year}. 3. 1.", TIER_REVIEW, STATUS_PENDING)]
+    found += new
+    more = rescan([a, b], found, _confirm(found, raw_value="허준"))
+    assert [(f.category, f.raw_value) for f in more] == [("이름", "허준"), ("생년월일", "700101")]
+    assert rescan([a, b], found + more, _confirm(found, category="이름")) == []  # 두 번 만들지 않는다
+
+
+def test_confirming_a_name_in_place_brings_its_date():
+    """AI가 찾았거나 해서 블록 규칙이 몰랐던 이름을 그 자리에서 확정해도 뒤의 날짜가 올라온다."""
+    year = date.today().year
+    a = doc(para(f"김민수({year}. 3. 1.) 전입"))
+    name = Finding(finding_id="D01-A0001", file_id="D01", filename="t.hwpx", format="hwpx", category="이름",
+                   raw_value="김민수", context="", block_id="b0000", start=0, end=3, location=a.blocks[0].location,
+                   sentence=0, detected_by=("ai_schift",), tier=TIER_REVIEW, review_status=STATUS_CONFIRMED,
+                   action="alias")
+    [new] = rescan([a], [name], [name])
+    assert (new.category, new.raw_value, new.review_status) == ("생년월일", f"{year}. 3. 1.", STATUS_PENDING)
 
 
 def test_gray_values_are_not_rescanned():
@@ -128,3 +169,19 @@ def test_groups_collect_same_value(wf):
     assert phone.status == STATUS_PENDING and phone.files == ["a.hwpx"]
     wf.confirm([phone.ids[0]])
     assert phone.status is None  # 섞임
+
+
+def test_a_file_that_breaks_the_reader_is_a_failed_file_not_a_dead_thread(tmp_path):
+    """읽다가 예상하지 못한 오류가 나도 그 파일만 읽지 못한 것으로 돌린다. 읽기 스레드가 죽으면 화면의 로딩이 끝나지 않는다."""
+    class Reader:
+        def read(self, path):
+            if path.name == "b.xlsx":
+                raise IndexError("list index out of range")
+            return doc(para("본문"), name=path.name)
+
+    settings = Settings(vault_dir=str(tmp_path / "금고"), workspace_dir=str(tmp_path / "작전실"))
+    wf = MissionWorkflow(settings, Vault(settings.vault_path).create("rescan-password"), reader_factory=Reader)
+    seen = []
+    read, failed = wf.read_files([Path("a.hwpx"), Path("b.xlsx"), Path("c.pdf")], progress=lambda i, n: seen.append(i))
+    assert [p.name for p, _ in read] == ["a.hwpx", "c.pdf"]
+    assert [(p.name, code) for p, code in failed] == [("b.xlsx", "READ_FAILED")] and seen == [1, 2, 3]

@@ -109,8 +109,9 @@ def add_engine() -> None:
 
 
 def add_assets() -> None:
-    shutil.copytree(ROOT / "assets", APP / "assets",
-                    ignore=lambda folder, names: {n for n in names if n in {"_source", "README.md"}})
+    # 화면이 쓰지 않는 그림은 싣지 않는다(나눠 쓰기 전의 원판과 만들 때만 쓰는 재료, 약 600KB)
+    skip = {"_source", "README.md", "progress-pearls@2x.png", "gems@2x.png", "heart@2x.png"}
+    shutil.copytree(ROOT / "assets", APP / "assets", ignore=lambda folder, names: {n for n in names if n in skip})
     fonts = APP / "assets" / "fonts"
     if not (fonts / "OFL.txt").is_file() or not list(fonts.glob("NotoSansKR*.ttf")):
         raise SystemExit("assets/fonts에 Noto Sans KR과 OFL.txt가 없습니다.")

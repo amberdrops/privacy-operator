@@ -46,7 +46,7 @@ def _trim(text: str, start: int, end: int) -> tuple[int, int]:
 
 
 def to_findings(results: list[ReadResult], existing: list[Finding], spans: list[AiSpan], by: str, tier: str,
-                role_hint: str | None = None, gray_overlap: bool = False) -> list[Finding]:
+                gray_overlap: bool = False) -> list[Finding]:
     taken: dict[tuple[str, str], list[Finding]] = {}
     last: dict[str, int] = {}
     for f in existing:
@@ -73,14 +73,14 @@ def to_findings(results: list[ReadResult], existing: list[Finding], spans: list[
             continue
         last[file_id] = last.get(file_id, 0) + 1
         rows = rows_of.setdefault(sp.doc_index, _row_index(res))
-        c = Candidate(start, end, sp.category, tier, {by}, role=role_hint)
+        c = Candidate(start, end, sp.category, tier, {by})
         f = Finding(
             finding_id=f"{file_id}-{AI_ID_MARK}{last[file_id]:04d}", file_id=file_id, filename=res.source_name,
             format=res.format, category=sp.category, raw_value=block.text[start:end],
             context=_context(block, c, rows), block_id=block.block_id, start=start, end=end,
             location=block.location, sentence=_sentence_of(_sentences(block.text), start),
             detected_by=(by,), tier=tier, review_status=default_status(tier),
-            action=default_action(tier, sp.category), role_hint=role_hint, hidden=block.hidden, note=sp.note)
+            action=default_action(tier, sp.category), hidden=block.hidden, note=sp.note)
         others.append(f)
         new.append(f)
     return new

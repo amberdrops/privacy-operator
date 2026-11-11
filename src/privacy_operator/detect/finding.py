@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from privacy_operator.detect.dictionaries import ACCOUNT, FRN, RRN
+from privacy_operator.detect.dictionaries import ACCOUNT, CARD, FRN, LICENSE, PASSPORT, RRN
 from privacy_operator.reader.blocks import Location
 
 # 등급
@@ -27,11 +27,13 @@ ACTION_ALIAS = "가명처리"
 ACTION_DELETE = "삭제"
 ACTION_KEEP = "유지"
 
-DELETE_BY_DEFAULT = frozenset({RRN, FRN, ACCOUNT})
+DELETE_BY_DEFAULT = frozenset({RRN, FRN, ACCOUNT, PASSPORT, LICENSE, CARD})
 
 # 탐지 근거(detected_by)
 BY_FORMAT = "format"  # 형식(정규식)
 BY_COLUMN = "column"  # 열 제목
+BY_COLUMN_SHAPE = "column_shape"  # 제목은 모르지만 값 대부분이 이름 모양인 열
+BY_AFTER_NAME = "after_name"  # 이름 바로 뒤 괄호 속 날짜(`김민수(1990. 1. 1.)`)
 BY_LABEL = "label"  # `담당자: 박서연`
 BY_ROLE = "role_context"  # `김민수 강사가`, `담당자 박서연에게`
 BY_PROPAGATION = "name_propagation"  # 확실 등급 이름을 다른 곳에서 다시 찾음
@@ -81,7 +83,6 @@ class Finding:
     review_status: str
     action: str
     escalated_by: str | None = None
-    role_hint: str | None = None  # 열 제목, 레이블, 역할어. 가명코드 역할 이름을 정할 때 쓴다
     hidden: bool = False  # 숨김 시트처럼 화면에 안 보이는 곳에서 찾음
     tier_set_by_human: bool = False  # 사람이 등급을 바꿨으면 조합 승격이 다시 올리지 않는다
     exclude_hint: str | None = None  # 있으면 '제외 후보'. 빼는 것은 사람이 한다
@@ -89,10 +90,7 @@ class Finding:
     validation: str | None = None  # 형식 검증 메모(예: 날짜 아님). 검증 실패만으로 빼지 않는다
     note: str | None = None  # AI가 댄 까닭(원문이 섞일 수 있다). 화면에만 쓴다
     replacement: str | None = None
-    verification_status: str | None = None
     alias_code: str | None = None
-    mapping_id: str | None = None
-    restore_status: str | None = None
 
     def __repr__(self) -> str:
         return (f"Finding({self.finding_id!r}, category={self.category!r}, tier={self.tier!r}, "

@@ -14,10 +14,13 @@ from privacy_operator.detect.dictionaries import (
     ACCOUNT,
     ADDRESS,
     BIRTH,
+    CARD,
     EMAIL,
     FRN,
     GRAY_CATEGORIES,
+    LICENSE,
     NAME,
+    PASSPORT,
     PHONE,
     RRN,
 )
@@ -34,12 +37,12 @@ REQUIRED = (
     "paper", "paper_head", "line", "ink", "ink_sub", "accent", "accent_deep", "on_accent", "row_selected",
     # 연한 강조 채움(고른 칸, 지금 단계)과 그 위 글씨, 주 단추 그림 위 글씨, 고리 단추 글씨, 체크박스 반쯤 표시
     "accent_fill", "on_accent_fill", "on_primary", "ring_text", "ring_text_deep", "metal_deep",
-    "band", "band_2", "band_line", "label", "metal", "signal_text", "signal_dot", "night", "focus",
+    "band", "band_2", "band_line", "label", "metal", "signal_text", "signal_dot", "focus",
     "step_done_border", "step_todo_text", "step_todo_border", "disabled_bg", "bezel", "bezel_rim", "bezel_ink",
 )
 # 유형 → 보석 점 색 이름(theme.json의 type_colors 키)
 _TYPE_GROUP = {NAME: "name", PHONE: "phone", EMAIL: "email", ADDRESS: "address", RRN: "number", FRN: "number",
-               ACCOUNT: "number", BIRTH: "number"}
+               ACCOUNT: "number", BIRTH: "number", PASSPORT: "number", LICENSE: "number", CARD: "number"}
 
 
 @dataclass
@@ -53,6 +56,7 @@ class Theme:
     graphic_pairs: list[tuple[str, str]] = field(default_factory=list)
     assets: dict = field(default_factory=dict)
     nine_slice: dict = field(default_factory=dict)
+    _files: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __getitem__(self, token: str) -> str:
         return self.colors[token]
@@ -66,22 +70,27 @@ class Theme:
     # ---------------------------------------------------------------- 에셋(10단계)
     # 파일이 없으면 None을 돌려주고, 화면은 색 토큰으로 그린 기본 모양을 쓴다(디자인 명세 'Google Flow 에셋')
 
-    def asset(self, key: str) -> Path | None:
-        name, folder = self.assets.get(key), self.assets.get("dir")
+    def _file(self, name) -> Path | None:
+        """테마 폴더의 그림 파일. 있는지는 한 번만 본다(표 한 행을 그릴 때마다 디스크를 여러 번 보았다)."""
+        folder = self.assets.get("dir")
         if not isinstance(name, str) or not folder:
             return None
-        path = assets_dir() / folder / name
-        return path if path.is_file() else None
+        key = (os.environ.get("PRIVACY_OPERATOR_ASSETS"), name)
+        if key not in self._files:
+            path = assets_dir() / folder / name
+            self._files[key] = path if path.is_file() else None
+        return self._files[key]
+
+    def asset(self, key: str) -> Path | None:
+        return self._file(self.assets.get(key))
 
     def asset_url(self, key: str) -> str | None:
         """스타일시트용 `"asset:<테마>/<파일>"`. 따옴표가 있어야 Qt가 접두어 경로로 읽는다."""
         return f'"{ASSET_PREFIX}:{self.assets["dir"]}/{self.assets[key]}"' if self.asset(key) else None
 
     def gem(self, category: str) -> Path | None:
-        gems, folder = self.assets.get("gems"), self.assets.get("dir")
-        name = gems.get(self.type_group(category)) if isinstance(gems, dict) else None
-        path = assets_dir() / folder / name if name and folder else None
-        return path if path and path.is_file() else None
+        gems = self.assets.get("gems")
+        return self._file(gems.get(self.type_group(category)) if isinstance(gems, dict) else None)
 
     def slices(self, key: str) -> tuple[list[int], list[int]] | None:
         """9분할 (자를 곳, 그릴 두께). 둘 다 CSS 순서(위, 오른, 아래, 왼). 자를 곳은 이미지 픽셀, 두께는 화면 px."""

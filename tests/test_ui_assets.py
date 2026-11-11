@@ -45,7 +45,7 @@ def test_theme_assets_exist(name):
     for key in FILE_KEYS:
         assert t.asset(key), f"{name}: {key} 에셋이 없습니다"
     if t.decorated:
-        for key in ("crown", "pearl_strand", "sparkle", "splash", "check_on", "check_off", "step_pearl",
+        for key in ("pearl_strand", "sparkle", "splash", "check_on", "check_off", "step_pearl",
                     "step_pearl_current", "step_pearl_done", "progress_band", "progress_band_fill", "chip_confirmed", "chip_pending", "emblem"):
             assert t.asset(key), f"{name}: {key} 에셋이 없습니다"
         for group in t.type_colors:
@@ -358,7 +358,7 @@ def test_plain_theme_has_no_pills_or_step_numbers(make_win):
     img = QImage(40, 40, QImage.Format.Format_ARGB32)
     img.fill(QColor(t["paper"]))
     p = QPainter(img)
-    assert paint_check(p, QRectF(0, 0, 40, 40), Qt.CheckState.Checked, t)
+    paint_check(p, QRectF(0, 0, 40, 40), Qt.CheckState.Checked, t)
     p.end()
     center = img.pixelColor(13, 13)  # 체크 선이 지나지 않는 채움 자리
     assert center.name().upper() == t["accent"].upper()

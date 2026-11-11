@@ -29,7 +29,6 @@ from privacy_operator.reader.blocks import CELL, METADATA, Block, ReadResult
 
 log = logging.getLogger(__name__)
 
-ROLE = "간접식별"  # 가명코드 [간접식별-01]
 CHUNK_CHARS = 1800
 MIN_BLOCK_CHARS = 8
 MAX_CANDIDATE_CHARS = 120
@@ -163,7 +162,7 @@ def find_indirect(results: list[ReadResult], existing: list[Finding], client: Lo
             spans += parse(answer, blocks, di, report)
         if progress:
             progress(n, len(todo))
-    new = to_findings(results, existing, spans, BY_AI_INDIRECT, TIER_REFERENCE, role_hint=ROLE, gray_overlap=True)
+    new = to_findings(results, existing, spans, BY_AI_INDIRECT, TIER_REFERENCE, gray_overlap=True)
     report.added = len(new)
     log.info("간접식별 후보: 묶음 %d, 모델 후보 %d, 버림 %d, 새 탐지 %d, 실패 묶음 %d", report.chunks,
              report.candidates, report.dropped, report.added, report.failed_chunks)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from privacy_operator.detect.dictionaries import GRAY_CATEGORIES
 from privacy_operator.detect.finding import ACTION_KEEP, STATUS_CONFIRMED, Finding
-from privacy_operator.detect.patterns import value_pattern
+from privacy_operator.detect.patterns import ValueIndex, fold, probe, value_pattern
 
 
 class BlocklistHit(Exception):
@@ -20,22 +20,25 @@ class BlocklistHit(Exception):
         self.finding_ids = finding_ids
 
 
-def _pattern(f: Finding):
-    return value_pattern(f.category, f.raw_value)  # 낱말 경계 없이 엄격하게
-
-
 def blocklist_hits(text: str, findings: list[Finding], bundles: dict[str, str] | None = None) -> list[str]:
-    """bundles: group_id → 묶음 원문. 묶음은 group의 첫 finding_id로 보고한다."""
-    hits = []
+    """bundles: group_id → 묶음 원문. 묶음은 group의 첫 finding_id로 보고한다.
+
+    같은 값은 한 번만 찾고, 값이 글에 있을 수 없으면 정규식을 만들지 않는다(큰 명단에서 글 하나에 4초 걸렸다).
+    찾는 기준은 value_pattern 그대로다(낱말 경계 없이 엄격하게)."""
+    values: dict[tuple[str, str], list[str]] = {}  # (유형, 값) → finding_id들
     for f in findings:
         if f.review_status != STATUS_CONFIRMED or f.action == ACTION_KEEP or not f.raw_value.strip():
             continue
         if f.category in GRAY_CATEGORIES:
             continue
-        if _pattern(f).search(text):
-            hits.append(f.finding_id)
+        values.setdefault((f.category, f.raw_value.strip()), []).append(f.finding_id)
+    keys = list(values)
+    text = fold(text)  # 값 정규식은 모양을 맞춘 글에서 쓴다(전각 숫자, 여러 가지 줄표)
+    left = {fid for i in ValueIndex([probe(*k) for k in keys]).candidates(text)
+            if value_pattern(*keys[i]).search(text) for fid in values[keys[i]]}
+    hits = [f.finding_id for f in findings if f.finding_id in left]
     for gid, bundle in (bundles or {}).items():
-        if bundle.strip() and bundle in text:
+        if bundle.strip() and fold(bundle) in text:
             first = min((f.finding_id for f in findings if f.group_id == gid), default=gid)
             hits.append(first)
     return hits

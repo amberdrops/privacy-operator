@@ -11,15 +11,11 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from privacy_operator.alias.codes import INDIRECT, AliasBook
-from privacy_operator.detect.dictionaries import GRAY_CATEGORIES
+from privacy_operator.alias.codes import AI_INDIRECT_ROLE, AliasBook
+from privacy_operator.detect.dictionaries import GRAY_CATEGORIES, INDIRECT
 from privacy_operator.detect.finding import (
     ACTION_ALIAS,
     ACTION_DELETE,
-    BY_COLUMN,
-    BY_LABEL,
-    BY_METADATA,
-    BY_ROLE,
     STATUS_CONFIRMED,
     STATUS_EXCLUDED,
     STATUS_PENDING,
@@ -51,16 +47,10 @@ class PseudoDocument:
         return f"PseudoDocument({self.source_name!r}, blocks={len(self.blocks)}, applied={len(self.applied)})"
 
 
-def _role_priority(f: Finding) -> int:
-    """먼저 만난 근거가 가명코드 역할을 정한다. 열 제목과 레이블을 먼저 본다."""
-    by = set(f.detected_by)
-    if by & {BY_COLUMN, BY_LABEL}:
-        return 0
-    if BY_METADATA in by:
-        return 1
-    if BY_ROLE in by:
-        return 2
-    return 3
+def _ai_role(f: Finding) -> str | None:
+    """AI가 찾은 간접식별 후보는 `[간접식별-01]`, 규칙이 묶은 회색 영역은 `[소속직급-01]`.
+    탐지의 유형이 간접식별인 것은 AI가 찾은 것(과 그것을 확정해 다시 찾은 것)뿐이다."""
+    return AI_INDIRECT_ROLE if f.category == INDIRECT else None
 
 
 Edits = dict[tuple[str, str], list[tuple[int, int, str, list[Finding]]]]
@@ -105,19 +95,19 @@ def plan(results: list[ReadResult], findings: list[Finding], book: AliasBook) ->
         start, end = first.start, max(f.end for f in members)
         bundle = texts[(first.file_id, first.block_id)][start:end]
         bundles[gid] = bundle
-        # AI가 찾은 간접식별 후보가 든 묶음은 그 역할([간접식별-01]), 아니면 [소속직급-01]
-        hint = next((f.role_hint for f in members if f.category == INDIRECT and f.role_hint), None)
-        code = book.code_for(INDIRECT, bundle, hint, first.filename)
+        # AI가 찾은 간접식별 후보가 든 묶음은 [간접식별-01], 아니면 [소속직급-01]
+        role = next((r for r in map(_ai_role, members) if r), None)
+        code = book.code_for(INDIRECT, bundle, first.filename, role)
         edits[(first.file_id, first.block_id)].append((start, end, code, members))
 
     grouped = {f.finding_id for ms in whole_groups.values() for f in ms}
-    for f in sorted(todo, key=lambda f: (_role_priority(f), f.file_id, f.finding_id)):
+    for f in sorted(todo, key=lambda f: (f.file_id, f.finding_id)):  # 가명코드 번호는 문서에 나온 순서
         if f.finding_id in grouped:
             continue
         if f.action == ACTION_DELETE:
             edits[(f.file_id, f.block_id)].append((f.start, f.end, DELETED, [f]))
         else:
-            code = book.code_for(f.category, f.raw_value, f.role_hint, f.filename)
+            code = book.code_for(f.category, f.raw_value, f.filename, _ai_role(f))
             edits[(f.file_id, f.block_id)].append((f.start, f.end, code, [f]))
     return edits, bundles
 
@@ -163,7 +153,6 @@ def pseudonymize(results: list[ReadResult], findings: list[Finding], book: Alias
                     # 원본 형식 저장이 그 값을 따로(바깥 가명코드로) 바꾸지 않게 한다
                     f.replacement = new if id(f) in own else None
                     f.alias_code = None if new == DELETED else new
-                    f.mapping_id = book.mission_id
                     doc.applied.append(f.finding_id)
             doc.blocks.append(dataclasses.replace(block, text=text) if text != block.text else block)
         docs.append(doc)

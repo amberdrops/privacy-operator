@@ -190,10 +190,6 @@ class Choice(QWidget):
     def currentData(self) -> str:  # noqa: N802  펼침 목록과 같은 이름
         return self.values[max(0, self.group.checkedId())]
 
-    def select(self, value: str) -> None:
-        if value in self.values:
-            self.group.button(self.values.index(value)).setChecked(True)
-
 
 def license_file(root: Path = PROJECT_ROOT) -> Path:
     """설치판은 LICENSE.txt(메모장으로 열린다), 소스에서는 LICENSE."""

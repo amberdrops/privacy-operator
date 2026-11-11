@@ -25,7 +25,6 @@
     "metal": "#C3CBD3",
     "signal_text": "#276B43",
     "signal_dot": "#3FA866",
-    "night": "#232A33",
     "focus": "#4F7BA8",
     "step_done_border": "#B7C3CF",
     "step_todo_text": "#5F6873",
@@ -49,7 +48,7 @@
     ["ink", "row_selected"], ["ink_sub", "row_selected"], ["accent_deep", "row_selected"],
     ["ink", "band"], ["ink_sub", "band"], ["accent", "band"], ["label", "band"], ["signal_text", "band"],
     ["step_todo_text", "band"], ["ink", "band_2"], ["ink_sub", "band_2"], ["accent", "band_2"], ["label", "band_2"],
-    ["on_accent", "accent"], ["on_accent", "night"], ["ink_sub", "disabled_bg"], ["bezel_ink", "bezel"],
+    ["on_accent", "accent"], ["ink_sub", "disabled_bg"], ["bezel_ink", "bezel"],
     ["on_accent_fill", "accent_fill"], ["ring_text", "band"], ["ring_text_deep", "band"], ["ring_text", "paper"]
   ],
   "graphic_pairs": [["focus", "paper"], ["focus", "band"], ["accent", "band_line"], ["metal_deep", "paper"]],

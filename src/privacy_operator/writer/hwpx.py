@@ -22,7 +22,7 @@ from kordoc import KordocClient
 
 from privacy_operator.reader.engine import FORCED_ENV, NO_WINDOW, find_cli, find_node, make_config
 from privacy_operator.writer.plan import ReplacementPlan
-from privacy_operator.writer.xmlsweep import sweep
+from privacy_operator.writer.xmlsweep import decode_text, sweep
 
 log = logging.getLogger(__name__)
 
@@ -41,29 +41,15 @@ def _engine(*args: str, cwd: Path) -> subprocess.CompletedProcess:
                           creationflags=NO_WINDOW)
 
 
-class PendingValidate:
-    """kordoc 구조 검사(창 없이). 만들자마자 돌기 시작하고 finish가 끝을 기다린다."""
-
-    def __init__(self, dst: Path, cwd: Path):
-        env = {**os.environ, **FORCED_ENV}
-        self.proc = subprocess.Popen([find_node(), str(find_cli()), "validate", str(dst)], cwd=cwd, env=env,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     creationflags=NO_WINDOW)
-
-    def finish(self) -> None:
-        """끝날 때까지 기다린다. 구조가 깨졌으면 HwpxWriteError."""
-        try:
-            code = self.proc.wait(timeout=300)
-        except subprocess.TimeoutExpired:
-            self.cancel()
-            raise HwpxWriteError("HWPX_INVALID") from None
-        if code != 0:
-            raise HwpxWriteError("HWPX_INVALID")
-
-    def cancel(self) -> None:
-        if self.proc.poll() is None:
-            self.proc.kill()
-            self.proc.wait()
+def validate(dst: Path, cwd: Path) -> None:
+    """kordoc 구조 검사(창 없이). 구조가 깨졌으면 HwpxWriteError.
+    남은 값 검사와 동시에 돌려 봤지만 엔진 두 개가 서로 느려져 더 오래 걸렸다(2026-11-10). 차례로 한다."""
+    try:
+        code = _engine("validate", str(dst), cwd=cwd).returncode
+    except subprocess.TimeoutExpired:
+        code = -1
+    if code != 0:
+        raise HwpxWriteError("HWPX_INVALID")
 
 
 def blank_png(data: bytes) -> bytes:
@@ -78,16 +64,6 @@ def blank_png(data: bytes) -> bytes:
     pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, w, h), False)
     pix.clear_with(255)
     return pix.tobytes("png")
-
-
-def _decode(data: bytes) -> tuple[str, str] | None:
-    for enc in ("utf-8-sig", "utf-16"):
-        try:
-            text = data.decode(enc)
-            return text, enc
-        except UnicodeDecodeError:
-            continue
-    return None
 
 
 def write_hwpx(src: Path, dst: Path, plan: ReplacementPlan, workdir: Path, is_hwp: bool = False, reader=None) -> None:
@@ -127,7 +103,7 @@ def write_hwpx(src: Path, dst: Path, plan: ReplacementPlan, workdir: Path, is_hw
             if name.lower().endswith(_XML_SUFFIXES):
                 data = sweep(data.decode("utf-8"), plan.replace)[0].encode("utf-8")
             elif name.lower().endswith(".txt"):
-                decoded = _decode(data)
+                decoded = decode_text(data)
                 if decoded:
                     text, enc = decoded
                     data = plan.replace(text).encode("utf-16" if enc == "utf-16" else "utf-8")
@@ -135,4 +111,4 @@ def write_hwpx(src: Path, dst: Path, plan: ReplacementPlan, workdir: Path, is_hw
                 data = blank_png(data)
             zout.writestr(info, data)  # mimetype은 압축 없이 맨 앞 그대로
 
-    PendingValidate(dst, workdir).finish()
+    validate(dst, workdir)

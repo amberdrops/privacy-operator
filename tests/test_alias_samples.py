@@ -18,12 +18,23 @@ from privacy_operator.alias.codes import AliasBook
 from privacy_operator.alias.crypto import unseal
 from privacy_operator.alias.pseudonymize import pseudonymize
 from privacy_operator.detect import detect
-from privacy_operator.detect.dictionaries import GRAY_CATEGORIES
+from privacy_operator.detect.dictionaries import GRAY_CATEGORIES, normalize_header
 from privacy_operator.detect.finding import ACTION_KEEP, STATUS_CONFIRMED
 from privacy_operator.settings import Settings, VaultSession, save_settings
-from privacy_operator.writer.markdown import write_markdown
+from privacy_operator.writer.blocklist import check_blocklist
+from privacy_operator.writer.markdown import to_markdown
 
 PW = "sample-mission-password"
+
+
+def write_markdown(doc, out_dir, findings):
+    """가명처리한 문서 하나를 마크다운으로 쓴다(차단 목록 검사 뒤). 작전 패키지 전체는 test_mission이 본다."""
+    text = to_markdown(doc.blocks)
+    check_blocklist(text, findings, doc.bundles)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / (doc.source_name.rsplit(".", 1)[0] + ".md")
+    path.write_text(text, encoding="utf-8", newline="\n")
+    return path
 
 
 class MemoryStore:
@@ -56,7 +67,7 @@ def mission(results, tmp_path_factory):
     book = AliasBook(mission_id)
     pdocs = pseudonymize(docs_in, findings, book)
     out = root / "작전실" / "to_ai" / mission_id / "docs"
-    paths = [write_markdown(d, out, findings, settings.vault_path) for d in pdocs]
+    paths = [write_markdown(d, out, findings) for d in pdocs]
     unlocked.save_mapping(mission_id, book.to_mapping())
     yield {"root": root, "settings": settings, "findings": findings, "book": book, "paths": paths,
            "mission_id": mission_id, "unlocked": unlocked}
@@ -79,7 +90,8 @@ def test_same_person_has_one_code_across_documents(mission):
     assert codes and all(len(c) == 1 for c in codes.values())
     md = mission["paths"][0].read_text(encoding="utf-8")  # 연수운영계획: 표, 본문, 메모에 같은 강사
     first = next(iter(codes[next(f.raw_value for f in mission["findings"]
-                                 if f.filename.endswith(".hwpx") and f.role_hint == "강사")]))
+                                 if f.filename.endswith(".hwpx") and f.category == "이름"
+                                 and normalize_header(f.location.header or "").startswith("강사"))]))
     assert md.count(first) >= 2
 
 

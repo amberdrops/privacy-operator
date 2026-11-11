@@ -26,7 +26,7 @@ from privacy_operator.reader.blocks import BlindSpot
 from privacy_operator.settings import Settings
 from privacy_operator.ui.dialogs import BlindSpotDialog, PasswordDialog, SettingsDialog
 from privacy_operator.ui.main_window import DROP, RESTORE, REVIEW, MainWindow
-from privacy_operator.ui.review import CHECK, CONTEXT, GROUP_ROLE, VALUE
+from privacy_operator.ui.review import CHECK, CONTEXT, FINDING_ROLE, GROUP_ROLE, VALUE
 from privacy_operator.ui.style import MIN_PX
 from privacy_operator.ui.theme import load_theme
 from privacy_operator.ui.voice import Voice
@@ -617,3 +617,32 @@ def test_busy_dialog_progress_updates_the_count(qtbot):
     qtbot.addWidget(dlg)
     dlg.progress(2, 4)
     assert dlg.text.text() == "읽는 중 2/4" and dlg.windowTitle() == "문서 읽기"
+
+
+def test_sort_by_value_and_back_to_the_order_of_appearance(win):
+    """'가나다순으로 보기'를 고르면 타깃 글자순, 풀면 문서에 나온 순서. 묶어 보기와 회색 영역 표도 함께 바뀐다."""
+    win.load_files([HWPX])
+    review = win.review
+
+    def values(proxy):
+        return [proxy.index(r, VALUE).data() for r in range(proxy.rowCount())]
+
+    first, gray_first = values(review.main_proxy), values(review.gray_proxy)
+    assert first != sorted(first)
+    review.sort_btn.click()
+    assert values(review.main_proxy) == sorted(first) and values(review.gray_proxy) == sorted(gray_first)
+    review.group_btn.click()
+    grouped = values(review.group_proxy)
+    assert review.table.model() is review.group_proxy and grouped == sorted(grouped)
+    review.group_btn.click()
+    review.sort_btn.click()
+    assert values(review.main_proxy) == first and values(review.gray_proxy) == gray_first
+
+
+def test_checking_a_row_in_sorted_view_checks_that_row(win, qtbot):
+    win.load_files([HWPX])
+    win.review.sort_btn.click()
+    table = win.review.table
+    index = table.model().index(0, VALUE)
+    qtbot.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=table.visualRect(index).center())
+    assert win.review.model.checked == {index.data(FINDING_ROLE).finding_id}

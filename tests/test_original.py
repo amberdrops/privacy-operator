@@ -227,6 +227,35 @@ def test_verify_finds_values_in_any_zip_part(tmp_path):
     assert places == ["settings.xml"] and ids == ["D01-0001"]
 
 
+def test_verify_reads_text_pieces_as_one_but_never_joins_them(tmp_path):
+    """태그 사이 글을 한 글로 이어 한 번에 본다. 조각을 넘어 이어진 글자는 값으로 보지 않는다."""
+    plan = ReplacementPlan([_finding("D01-0001", "이름", "김민수", "[이름-01]"),
+                            _finding("D01-0002", "전화", "010-0000-0012", "[전화-01]")])
+    path = tmp_path / "x.hwpx"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("a.xml", "<p><t>김민</t><t>수</t><t>010</t><t>0000</t><t>0012</t></p>")  # 조각마다 다른 글
+        z.writestr("b.xml", "<p><t>가</t><t>010 0000 0012</t><t>나</t></p>")
+        z.writestr("c.xml", '<p note="김민수"><t>다</t></p>')
+    places, ids = verify(path, "zip", plan, reader=None)
+    assert places == ["b.xml", "c.xml"] and sorted(ids) == ["D01-0001", "D01-0002"]
+
+
+def test_leftovers_same_answer_with_many_rules():
+    """규칙이 많아도 답은 하나씩 정규식으로 본 것과 같다(선검사는 없는 것을 거르기만 한다)."""
+    names = [a + b + c for a in "김이박최정" for b in "민서지수현" for c in "준우진하도"]
+    findings = [_finding(f"D01-{i:04d}", "이름", n, f"[이름-{i:02d}]") for i, n in enumerate(names, start=1)]
+    findings += [_finding(f"D01-9{i:03d}", "전화", f"010-0000-{i:04d}", f"[전화-{i:02d}]") for i in range(1, 40)]
+    plan = ReplacementPlan(findings)
+    text = "가김 민준나 이지 수진, 가박수하도 01000000007 010.0000.0031 0100000 00390"
+    slow = [r.finding_ids[0] for r in plan.rules if r.secret and r.pattern.search(text)]
+    assert plan.leftovers(text) == slow and len(slow) == 3
+    assert plan.leftovers("") == []
+    # 남았는지만 알면 될 때는 몇 개 찾고 멈춘다
+    some = plan.leftovers(text, limit=2)
+    assert len(some) == 2 and set(some) <= set(slow)
+    assert plan.leftovers("남은 것 없음", limit=2) == []
+
+
 def test_failed_check_keeps_file_out_and_temp_is_removed(tmp_path, monkeypatch, reader):
     """원본 형식 저장이 값을 남기면(여기서는 원본을 그대로 베끼게 망가뜨림) 결과를 넣지 않는다."""
     import tempfile

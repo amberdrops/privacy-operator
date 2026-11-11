@@ -12,42 +12,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from privacy_operator.alias.batchim import has_batchim
-from privacy_operator.detect.dictionaries import (
-    ADDRESS,
-    AFFILIATION,
-    AGE,
-    BIRTH,
-    EMAIL,
-    GRADE,
-    INDIRECT,
-    NAME,
-    PHONE,
-    POSITION,
-    SCHOOL,
-    WORKPLACE,
-)
+from privacy_operator.detect.dictionaries import EMAIL, INDIRECT, NAME, PHONE, SCHOOL
+from privacy_operator.detect.patterns import fold, is_spaced_name
 
-NAME_ROLE = "이름"
-
-_CATEGORY_ROLES = {
-    NAME: NAME_ROLE, PHONE: "전화", EMAIL: "이메일", ADDRESS: "주소", BIRTH: "생년월일",
-    AFFILIATION: "소속", WORKPLACE: "근무지", SCHOOL: "학교", POSITION: "직위", GRADE: "직급", AGE: "나이대",
-    INDIRECT: "소속직급",
-}
-WIDE_ROLES: frozenset[str] = frozenset()  # 세 자리로 매길 유형(지금은 없음. 100번째부터는 저절로 세 자리)
-
-
-def role_for(category: str, role_hint: str | None) -> str:
-    """가명코드 앞부분. 이름은 역할과 상관없이 `이름`(role_hint는 AI 간접식별 후보에만 쓴다)."""
-    if category == INDIRECT and role_hint:  # AI가 찾은 간접식별 후보: [간접식별-01]
-        return role_hint
-    return _CATEGORY_ROLES.get(category, category)
+# 가명코드 앞부분. 여기 없는 유형은 유형 이름을 그대로 쓴다(`[계좌번호-01]`)
+_CATEGORY_ROLES = {SCHOOL: "학교", INDIRECT: "소속직급"}
+AI_INDIRECT_ROLE = "간접식별"  # AI가 찾은 간접식별 후보는 규칙이 묶은 것과 가려 `[간접식별-01]`
 
 
 def value_key(category: str, value: str) -> tuple[str, str]:
     """같은 값인지 가르는 열쇠. 전화는 숫자만, 이메일은 소문자, 나머지는 공백을 뺀다."""
     if category == PHONE:
-        return (category, re.sub(r"\D", "", value))
+        return (category, re.sub(r"\D", "", fold(value)))
     if category == EMAIL:
         return (category, value.strip().lower())
     return (category, re.sub(r"\s", "", value))
@@ -99,15 +75,19 @@ class AliasBook:
                 book._next[m.group(1)] = max(book._next.get(m.group(1), 1), int(m.group(2)) + 1)
         return book
 
-    def code_for(self, category: str, value: str, role_hint: str | None, source_file: str) -> str:
+    def code_for(self, category: str, value: str, source_file: str, role: str | None = None) -> str:
+        """role: 가명코드 앞부분을 유형 이름과 다르게 쓸 때(AI 간접식별 후보). 100번째부터는 세 자리가 된다."""
         key = value_key(category, value)
         entry = self._by_key.get(key)
+        if category == NAME and is_spaced_name(value):
+            # 결재란처럼 한 글자씩 띄어 쓴 이름(`홍 길 동`)은 붙여 쓴 이름으로 적어 둔다. 복원할 때 본문에
+            # 띄어 쓴 이름이 들어가지 않게
+            value = key[1]
         if entry is None:
-            role = role_for(category, role_hint)
+            role = role or _CATEGORY_ROLES.get(category, category)
             n = self._next.get(role, 1)
             self._next[role] = n + 1
-            width = 3 if role in WIDE_ROLES else 2
-            entry = MappingEntry(f"[{role}-{n:0{width}d}]", category, value, has_batchim(value),
+            entry = MappingEntry(f"[{role}-{n:02d}]", category, value, has_batchim(value),
                                  created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
             self._by_key[key] = entry
         if source_file not in entry.source_files:

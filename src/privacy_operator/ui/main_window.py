@@ -594,7 +594,6 @@ class MainWindow(QMainWindow):
         self.blind_icon.setPixmap(icons.pixmap("warning", t["accent"], 20, background=t["paper_head"]))
         self.lock.setPixmap(icons.pixmap("lock_open", t["label"], 18))  # '금고 열림' 글자와 맞춰 열린 자물쇠
         # 검토 보드는 지금 화면 표시라 아이콘 없이 글자만(2026-11-08). 복원, 파일 더 넣기는 할 일이라 아이콘을 둔다
-        self.nav[REVIEW].setIcon(QIcon())
         for b, name in ((self.nav[RESTORE], "restore"), (self.add_btn, "plus")):
             b.setIcon(QIcon(icons.pixmap(name, t["ink"], 20)))
             b.setIconSize(QSize(20, 20))

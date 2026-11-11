@@ -32,7 +32,7 @@ from privacy_operator.detect.finding import (
     TIER_REVIEW,
     Finding,
 )
-from privacy_operator.detect.patterns import value_pattern
+from privacy_operator.detect.patterns import fold, value_pattern
 from privacy_operator.mission.package import ProcessingRecord, agent_rules_text, build_package
 from privacy_operator.mission.results import ResultFile, RestoredFile, find_results, restore_result
 from privacy_operator.reader import DocumentReader, ReadError, ReadResult
@@ -162,6 +162,11 @@ class MissionWorkflow:
                     read.append((p, self._ensure_reader().read(p)))
                 except ReadError as e:
                     failed.append((p, e.code))
+                except Exception as e:  # noqa: BLE001
+                    # 예상하지 못한 오류로 읽기 스레드가 죽으면 화면의 로딩이 끝나지 않는다(2026-11-11).
+                    # 그 파일만 읽지 못한 것으로 돌린다. 예외 글에는 원문이 섞일 수 있어 종류만 적는다
+                    log.error("read failed: %s", type(e).__name__)
+                    failed.append((p, "READ_FAILED"))
             if progress:
                 progress(i, len(paths))
         return read, failed
@@ -302,7 +307,7 @@ class MissionWorkflow:
         self.findings += added
         patterns = [value_pattern(f.category, f.raw_value) for f in sources]
         ids = [f.finding_id for f in self.findings
-               if not is_reference(f) and any(p.search(f.raw_value) for p in patterns)]
+               if not is_reference(f) and any(p.search(fold(f.raw_value)) for p in patterns)]
         self._refresh_preview()
         log.info("송출 멈춤 뒤 남은 자리 %d곳(새로 찾은 곳 %d)", len(ids), len(added))
         return ids
@@ -424,7 +429,7 @@ class MissionWorkflow:
     def find_code(self, text: str) -> list[tuple[str, str, str]]:
         """코드명 하나로 모든 작전의 대응표를 찾는다. [(작전 번호, 코드명, 원문 값)], 최근 작전부터.
         작전마다 번호를 새로 매기므로 같은 코드명이 여러 작전에 있을 수 있다. 화면에만 보여 주고 어디에도 남기지 않는다.
-        괄호를 빼거나 띄어 쓰거나 전각 괄호로 적거나 0을 빼고 적어도 찾는다(`학생-1`, `[ 학생 - 01 ]`, `［학생-01］`)."""
+        괄호를 빼거나 띄어 쓰거나 전각 괄호로 적거나 0을 빼고 적어도 찾는다(`이름-1`, `[ 이름 - 01 ]`, `［이름-01］`)."""
         want = code_key(text)
         if not want:
             return []
@@ -441,7 +446,7 @@ _CODE_PARTS = re.compile(r"\[?\s*([^\[\]\s-]+(?:\s+[^\[\]\s-]+)*)\s*-\s*(\d+)\s*
 
 
 def code_key(text: str) -> tuple[str, int] | None:
-    """코드명을 (역할, 번호)로. `[학생-01]`, `학생-1`, `[ 학생 - 01 ]`, `［학생-01］`이 모두 ('학생', 1). 코드명 모양이 아니면 None."""
+    """코드명을 (유형, 번호)로. `[이름-01]`, `이름-1`, `[ 이름 - 01 ]`, `［이름-01］`이 모두 ('이름', 1). 코드명 모양이 아니면 None."""
     t = (text or "").strip().translate(str.maketrans("［］【】", "[][]"))
     m = _CODE_PARTS.fullmatch(t)
     return (m.group(1).replace(" ", ""), int(m.group(2))) if m else None

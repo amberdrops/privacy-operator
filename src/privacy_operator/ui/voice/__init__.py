@@ -31,10 +31,6 @@ class Voice:
         text = self._table[key]
         return text.format(**values) if values else text
 
-    def plain(self, key: str, **values) -> str:
-        text = self._plain[key]
-        return text.format(**values) if values else text
-
     def tip(self, key: str) -> str:
         """툴팁. 쉬운 말에서는 설명만, 작전 말투에서는 쉬운 말 이름과 설명을 함께."""
         meaning = self._plain.get(f"tip.{key}", "")

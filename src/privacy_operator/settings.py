@@ -185,10 +185,9 @@ class VaultSession:
         unlocked.change_password(new_password)
         self._remember(new_password)
 
-    def set_remember(self, on: bool, password: str | None = None) -> None:
+    def set_remember(self, on: bool) -> None:
+        """끄면 저장해 둔 비밀번호를 지운다. 켜면 다음에 금고를 열 때부터 저장한다."""
         self.settings.remember_password = on
-        if on and password:
-            self.store.set(self.settings.vault_dir, password)
         if not on:
             self.store.delete(self.settings.vault_dir)
 
