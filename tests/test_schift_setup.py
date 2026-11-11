@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QApplication, QDialog, QLabel, QScrollArea
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QScrollArea
 from test_ui_window import _small_texts
 
 from privacy_operator.detect.ai import schift
@@ -460,6 +460,47 @@ def test_settings_notice_cancel_does_not_install(qtbot, tmp_path, ai_env, monkey
     dlg = settings_dialog(qtbot, tmp_path)
     dlg.ai_install.click()
     assert dlg.ai_schift is None and not is_installed(ai_env["home"])
+
+
+def test_notice_go_button_accepts_and_cancel_rejects(qtbot):
+    """안내 창의 '설치 시작'을 실제로 누르면 창이 수락으로 닫힌다(1.0.0에서 연결이 빠져 먹지 않았다).
+    다른 시험은 exec를 바꿔 끼우므로 이 단추를 누르지 않는다. 그래서 따로 누른다."""
+    for clicked, expected in (("go", QDialog.DialogCode.Accepted), ("cancel", QDialog.DialogCode.Rejected)):
+        notice = ModelNoticeDialog(Voice("plain"))
+        qtbot.addWidget(notice)
+        notice.show()
+        qtbot.waitExposed(notice)
+        if clicked == "go":
+            notice.go_btn.click()
+        else:
+            next(b for b in notice.findChildren(QPushButton) if b is not notice.go_btn).click()
+        assert notice.result() == expected and not notice.isVisible()
+
+
+def test_settings_install_by_really_clicking_notice(qtbot, tmp_path, ai_env, monkeypatch):
+    """설정 창의 '모델 설치' → 안내 창의 '설치 시작'을 진짜로 눌러(exec를 바꿔 끼우지 않고) 설치 도구가 돈다."""
+    from PySide6.QtCore import QTimer
+
+    monkeypatch.setattr(ModelNoticeDialog, "exec", QDialog.exec)  # ai_env가 바꿔 끼운 것을 되돌린다
+    ran = []
+    monkeypatch.setattr(dialogs, "ModelSetup", lambda: ran.append(1) or ai_env["fake_tool"]("ok"))
+    dlg = settings_dialog(qtbot, tmp_path)
+
+    def press_go(tries=[0]):
+        notice = next((w for w in QApplication.topLevelWidgets()
+                       if isinstance(w, ModelNoticeDialog) and w.isVisible()), None)
+        if notice is None:
+            QTimer.singleShot(50, press_go)
+            return
+        notice.go_btn.click()
+        tries[0] += 1
+        if notice.isVisible():  # 단추가 먹지 않았다. 시험이 멈추지 않게 닫고 아래 assert로 실패시킨다
+            notice.reject()
+
+    QTimer.singleShot(50, press_go)
+    dlg.ai_install.click()
+    assert ran, "안내 창에서 '설치 시작'을 눌렀는데 설치 도구가 돌지 않았다"
+    qtbot.waitUntil(lambda: dlg.ai_schift is not None, timeout=30000)
 
 
 def test_settings_remove_model(qtbot, tmp_path, ai_env, monkeypatch):

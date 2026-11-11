@@ -476,7 +476,9 @@ class ModelNoticeDialog(_Dialog):
         super().__init__(voice, "settings.ai_notice_title", parent)
         self.lay.addWidget(self.label("settings.ai_notice_text"))
         self.lay.addWidget(self.label("settings.ai_notice_license", "Guide"))
-        self.buttons("settings.ai_notice_go", "settings.ai_notice_cancel")
+        go, _ = self.buttons("settings.ai_notice_go", "settings.ai_notice_cancel")
+        go.clicked.connect(self.accept)  # buttons()는 취소만 연결한다(1.0.0에서 빠뜨려 '설치 시작'이 먹지 않았다)
+        self.go_btn = go
 
 
 _LIVE_THREADS: set = set()
