@@ -64,4 +64,6 @@ GNU AGPL-3.0 ([LICENSE](LICENSE)). 같은 조건으로 고치거나 나눠 줄 �
 
 함께 쓰는 오픈소스: [kordoc](https://github.com/chrisryugj/kordoc)(문서 읽기, MIT), PyMuPDF(PDF 글자 지우기, AGPL-3.0), PySide6(화면, LGPL-3.0), openpyxl(MIT), cryptography(Apache-2.0, BSD), keyring(MIT), Node.js(MIT), Noto Sans KR 글꼴(OFL-1.1). 설치판에는 전체 고지가 `THIRD_PARTY_NOTICES.txt`로 들어 있습니다.
 
+선택해서 설치하는 AI 정찰 모델 [schift-ko-pii](https://huggingface.co/schift-io/schift-ko-pii-v7)(Schift, Inc.)는 이 프로그램에 들어 있지 않은 별도 구성요소이며, AGPL-3.0이 아니라 [Schift License v2.0](licenses/Schift-License-2.0.txt)을 따릅니다. 설정에서 모델 설치를 누르면 Schift의 저장소에서 직접 받습니다.
+
 © 2026 Ally Hyerim Lee (알리)
