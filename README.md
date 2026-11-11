@@ -6,9 +6,11 @@
 - 인터넷에 연결하지 않습니다. 문서는 내 컴퓨터 밖으로 나가지 않습니다.
 - 원본 파일은 바꾸지 않고 항상 새 파일을 만듭니다.
 
+Microsoft Store에서도 받을 수 있습니다. Store판과 아래 설치 파일판은 같은 프로그램이고, 다른 점은 [AI 정찰 모델](#ai-정찰-모델-선택)을 설치할 수 있느냐 하나입니다.
+
 ## 설치
 
-1. [Releases](https://github.com/amberdrops/privacy-operator/releases)에서 `PrivacyOperator-Setup-0.9.3.exe`를 내려받습니다. 지금은 **베타**(0.9.3)입니다. 써 보시고 잘못 찾거나 놓친 것을 [Issues](https://github.com/amberdrops/privacy-operator/issues)에 알려 주세요.
+1. [Releases](https://github.com/amberdrops/privacy-operator/releases)에서 `PrivacyOperator-Setup-1.0.0.exe`를 내려받습니다. 써 보시고 잘못 찾거나 놓친 것을 [Issues](https://github.com/amberdrops/privacy-operator/issues)에 알려 주세요.
 2. 두 번 눌러 설치합니다. Windows 10, 11 (64비트)에서 돌아가고, 관리자 권한은 없어도 됩니다.
 3. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다. 아직 코드서명을 하지 않아서 뜨는 창입니다.
 
@@ -24,6 +26,15 @@
 가명코드와 원래 값의 짝(대응표)은 내가 정한 비밀번호로 암호화해 금고 폴더에만 둡니다. 비밀번호를 잊으면 되돌릴 수 없습니다.
 
 궁금한 점은 [자주 묻는 질문](docs/05_자주묻는질문.md)에 모았습니다. 설치하면 시작 메뉴에서도 열 수 있습니다.
+
+## AI 정찰 모델 (선택)
+
+규칙만으로도 개인정보를 찾지만, 모델을 설치하면 `어제 윤서진과 이야기했다`처럼 직위나 이름표가 없는 이름과 주소를 더 찾아 줍니다. 찾은 것은 '검토'로 올라올 뿐이고, 확정은 사람이 합니다.
+
+- **설치 파일판에만 있습니다.** 설정의 **모델 설치**를 누르면 약 1GB를 내려받습니다. 이때 한 번만 인터넷에 연결하고, 그 뒤로는 인터넷 없이 내 컴퓨터 안에서만 돕니다. Store판에는 이 기능이 없습니다.
+- 모델은 Schift 사가 공개한 [schift-ko-pii](https://huggingface.co/schift-io/schift-ko-pii-v7)입니다. 설치 파일에는 들어 있지 않으며, 설치 도구가 Schift의 저장소(Hugging Face)에서, 실행 도구는 PyTorch와 PyPI의 공식 저장소에서 직접 받습니다.
+- 이 모델은 개인정보작전실(AGPL-3.0)과 따로 도는 별도 구성요소이고 [Schift License v2.0](licenses/Schift-License-2.0.txt)을 따릅니다. 연구, 교육, 평가, 개인, 비영리 사용은 무료이고, 연 매출이 미화 1천만 달러를 넘는 곳의 상업적 사용은 Schift의 별도 허락이 필요합니다.
+- 설정의 **모델 지우기**로 지울 수 있고, 프로그램을 제거하면 함께 지워집니다.
 
 ## 알아 둘 점
 
