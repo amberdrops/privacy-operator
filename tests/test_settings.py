@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from privacy_operator.alias.crypto import WrongPassword
@@ -65,6 +67,20 @@ def test_settings_roundtrip(home):
     settings = _settings(home, theme="pink", voice="mission", retention_days=30)
     save_settings(settings)
     assert load_settings() == settings
+
+
+def test_old_settings_file_with_removed_keys_loads_and_drops_them(home):
+    """지운 설정 칸(예전 Ollama 모델, 포트)이 옛 settings.json에 남아 있어도 읽히고, 다시 저장하면 사라진다."""
+    settings = _settings(home, theme="pink")
+    path = save_settings(settings)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.update({"ai_ollama_model": "qwen3:4b", "ollama_port": 11434})
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    loaded = load_settings()
+    assert loaded == settings
+    save_settings(loaded)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert "ai_ollama_model" not in saved and "ollama_port" not in saved
 
 
 def test_default_locations_are_under_documents(home):

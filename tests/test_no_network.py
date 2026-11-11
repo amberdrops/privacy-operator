@@ -4,8 +4,8 @@ src/ 아래 모든 .py 파일을 구문 분석해서 금지 모듈을 불러오�
 - import a.b / from a.b import c / from a import b(하위 모듈) 모양
 - __import__("a"), importlib.import_module("a") 처럼 문자열로 불러오는 모양
 
-9단계에서 Ollama(127.0.0.1) 연동을 붙일 때는 그 모듈 파일 하나만
-ALLOWED_FILES에 넣고, 해당 파일에서 접속 주소를 검사하는 테스트를 따로 둔다.
+예외 파일은 없다. 로컬 모델(Ollama) 연동을 지운 뒤로 src/ 어디에서도 http.client를 포함한
+통신 모듈을 쓰지 못한다.
 """
 
 from __future__ import annotations
@@ -35,12 +35,6 @@ FORBIDDEN_MODULES = {
     "smtplib",
     "telnetlib",
 }
-
-# src/ 기준 상대 경로. Ollama(127.0.0.1) 연결 파일 하나만. 그 파일은 아래 test_ollama_*로 따로 검사한다.
-OLLAMA_FILE = "privacy_operator/detect/ai/ollama_local.py"
-ALLOWED_FILES: set[str] = {OLLAMA_FILE}
-# 예외 파일에서도 쓸 수 있는 것은 http.client 하나
-ALLOWED_IN_OLLAMA = {"http.client"}
 
 
 def _is_forbidden(module: str) -> bool:
@@ -103,8 +97,6 @@ def test_src_has_no_network_imports():
     problems = []
     for path in _src_files():
         rel = path.relative_to(SRC_DIR).as_posix()
-        if rel in ALLOWED_FILES:
-            continue
         for lineno, module in find_forbidden_imports(path.read_text(encoding="utf-8"), rel):
             problems.append(f"{rel}:{lineno} {module}")
     assert not problems, "외부 통신 모듈 사용 금지(CLAUDE.md 절대 규칙 1):\n" + "\n".join(problems)
@@ -147,42 +139,3 @@ def test_checker_catches_forbidden(source):
 )
 def test_checker_allows_safe(source):
     assert not find_forbidden_imports(source)
-
-
-# ---------------------------------------------------------------- Ollama 예외 파일 (9단계)
-
-def _ollama_source() -> str:
-    return (SRC_DIR / OLLAMA_FILE).read_text(encoding="utf-8")
-
-
-def test_ollama_file_uses_only_http_client():
-    modules = {m for _, m in find_forbidden_imports(_ollama_source(), OLLAMA_FILE)}
-    assert modules <= ALLOWED_IN_OLLAMA, f"Ollama 파일에서 허용하지 않은 통신 모듈: {modules - ALLOWED_IN_OLLAMA}"
-
-
-def test_ollama_host_is_fixed_loopback():
-    """접속 주소는 상수 HOST = "127.0.0.1" 하나이고, 연결은 모두 그 상수로 만든다."""
-    tree = ast.parse(_ollama_source())
-    hosts = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
-             and any(isinstance(t, ast.Name) and t.id == "HOST" for t in n.targets)]
-    assert len(hosts) == 1 and isinstance(hosts[0].value, ast.Constant) and hosts[0].value.value == "127.0.0.1"
-    conns = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-             and n.func.attr in ("HTTPConnection", "HTTPSConnection", "create_connection")]
-    assert conns, "연결을 만드는 곳을 찾지 못했습니다. 검사가 헛돌고 있습니다."
-    for c in conns:
-        assert c.func.attr == "HTTPConnection"
-        assert isinstance(c.args[0], ast.Name) and c.args[0].id == "HOST", "연결 주소는 HOST 상수만 씁니다"
-
-
-def test_ollama_file_has_no_other_addresses():
-    text = _ollama_source()
-    for bad in ("http://", "https://", "localhost", "0.0.0.0", "ollama.com", "OLLAMA_HOST"):
-        assert bad not in text.replace("127.0.0.1", ""), f"Ollama 파일에 다른 주소가 있습니다: {bad}"
-
-
-def test_only_ollama_file_talks_to_ollama():
-    """다른 파일이 HTTPConnection을 직접 만들지 않는다(불러오기 검사와 별개로 한 번 더)."""
-    for path in _src_files():
-        rel = path.relative_to(SRC_DIR).as_posix()
-        if rel != OLLAMA_FILE:
-            assert "HTTPConnection" not in path.read_text(encoding="utf-8"), rel

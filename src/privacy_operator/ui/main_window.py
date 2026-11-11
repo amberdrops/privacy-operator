@@ -760,11 +760,7 @@ class MainWindow(QMainWindow):
             self.ai = None
         self.binder.refresh(self.review.ai_btn)
         added = self.workflow.add_ai(run)
-        indirect = sum(1 for f in added if is_reference(f))
-        if indirect:
-            self.review.fold.setChecked(True)  # 간접식별 후보는 회색 영역에 들어간다
-        self.notice = (self.voice.t("ai.done_indirect", n=len(added), m=indirect) if indirect
-                       else self.voice.t("ai.done", n=len(added)) if added else self.voice.t("ai.done_none"))
+        self.notice = self.voice.t("ai.done", n=len(added)) if added else self.voice.t("ai.done_none")
         self.refresh()
         self.ai_finished.emit()
         if run.errors:

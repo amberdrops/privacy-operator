@@ -13,7 +13,6 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -33,7 +32,6 @@ from PySide6.QtWidgets import (
 )
 
 from privacy_operator.alias.crypto import MIN_PASSWORD_LENGTH, WrongPassword
-from privacy_operator.detect.ai.ollama_local import LocalOllama, OllamaError, is_cloud_name
 from privacy_operator.detect.ai.schift import is_installed as schift_installed
 from privacy_operator import BETA, __version__
 from privacy_operator.settings import PROJECT_ROOT, Settings, SettingsError, validate_paths
@@ -287,7 +285,7 @@ class SettingsDialog(_Dialog):
         self._row(None, self.license_btn, Qt.AlignmentFlag.AlignLeft)
 
     def _ai_section(self, settings: Settings) -> None:
-        """AI 탐지(선택). Schift는 설치되어 있어야 켤 수 있다. Ollama 목록에는 내 컴퓨터의 모델만 나온다."""
+        """AI 탐지(선택). Schift는 설치되어 있어야 켤 수 있다."""
         self._section("settings.ai")
         self._row(None, self.label("settings.ai_note", "Guide"))
         installed = schift_installed()
@@ -298,19 +296,6 @@ class SettingsDialog(_Dialog):
         self._row(None, self.ai_schift)
         if not installed:
             self._row(None, self.label("settings.ai_schift_missing", "Guide"))
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        self.ai_model = QComboBox()
-        refresh = self.button("settings.ai_ollama_refresh")
-        refresh.clicked.connect(self.refresh_models)
-        row.addWidget(self.ai_model, 1)
-        row.addWidget(refresh)
-        self._row("settings.ai_ollama", row)
-        self.ai_state = QLabel()
-        self.ai_state.setObjectName("Guide")
-        self.ai_state.setWordWrap(True)
-        self._row(None, self.ai_state)
-        self.refresh_models()
 
     # ---------------------------------------------------------------- 격자 줄
 
@@ -344,23 +329,6 @@ class SettingsDialog(_Dialog):
         self._row(key, row)
         return box
 
-    def refresh_models(self) -> None:
-        wanted = self.ai_model.currentData() if self.ai_model.count() else self.settings.ai_ollama_model
-        self.ai_model.clear()
-        self.ai_model.addItem(self.voice.t("settings.ai_ollama_off"), "")
-        try:
-            models = LocalOllama(self.settings.ollama_port).models()
-        except OllamaError:
-            models = []
-            self.ai_state.setText(self.voice.t("settings.ai_ollama_down"))
-        else:
-            self.ai_state.setText(self.voice.t("settings.ai_ollama_found", n=len(models)))
-        for m in models:
-            self.ai_model.addItem(f"{m.name}   {m.parameter_size}".rstrip(), m.name)
-        if wanted and self.ai_model.findData(wanted) < 0 and not is_cloud_name(wanted):
-            self.ai_model.addItem(wanted, wanted)  # Ollama가 꺼져 있어도 고른 모델을 지우지 않는다
-        self.ai_model.setCurrentIndex(max(0, self.ai_model.findData(wanted or "")))
-
     def _path_row(self, key: str, value: str, editable: bool = True) -> "PathField":
         field = PathField(value)
         row = QHBoxLayout()
@@ -383,7 +351,7 @@ class SettingsDialog(_Dialog):
                       remember_password=self.remember.isChecked(), retention_days=self.retention.value(),
                       theme=self.theme.currentData(), voice=self.voice_box.currentData(),
                       alias_continue=self.alias_continue.isChecked(),
-                      ai_schift=self.ai_schift.isChecked(), ai_ollama_model=self.ai_model.currentData() or "")
+                      ai_schift=self.ai_schift.isChecked())
         try:
             validate_paths(new)
         except SettingsError as e:

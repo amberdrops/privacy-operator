@@ -49,10 +49,8 @@ class Settings:
     theme: str = "pink"  # 처음 켤 때 핑크 오퍼레이터(2026-11-08 결정). 설정에서 바꾸면 그 값이 저장되어 다음에도 쓰인다
     voice: str = "mission"  # 처음 켤 때 작전 말투(2026-11-08 결정)
     alias_continue: bool = False
-    # 9단계 AI 탐지(선택). 둘 다 꺼 두는 것이 기본
+    # 9단계 AI 탐지(선택). 꺼 두는 것이 기본
     ai_schift: bool = False  # 이름과 주소를 Schift 모델로 더 찾기
-    ai_ollama_model: str = ""  # 간접식별 후보를 찾을 Ollama 로컬 모델. 비면 쓰지 않음. 클라우드 모델은 거부
-    ollama_port: int = 11434  # 접속 주소는 127.0.0.1 고정. 포트만 바꿀 수 있다
 
     def __post_init__(self):
         self.vault_dir = self.vault_dir or str(_documents() / "작전실금고")

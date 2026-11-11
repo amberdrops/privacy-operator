@@ -41,7 +41,6 @@ BY_METADATA = "metadata"  # 문서 속성, 메모 작성자
 BY_GRAY_TEXT = "gray_text"  # 본문 속 기관명, 직급, 나이대
 BY_CONFIRMED = "confirmed_value"  # 사람이 확정한 값을 다른 곳에서 다시 찾음(7단계)
 BY_AI_NER = "ai_schift"  # Schift 모델이 찾은 이름, 주소(9단계)
-BY_AI_INDIRECT = "ai_ollama"  # Ollama 로컬 모델이 찾은 간접식별 후보(9단계)
 
 # 승격 근거(escalated_by)
 ESC_NAME_SAME_ROW = "name_same_row"

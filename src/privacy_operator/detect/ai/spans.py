@@ -1,8 +1,7 @@
-"""AI가 찾은 자리를 탐지(finding)로 바꾼다. Schift와 Ollama가 함께 쓴다.
+"""AI가 찾은 자리를 탐지(finding)로 바꾼다.
 
-- 등급은 넘겨받은 것으로 시작한다. AI 판단만으로 '확실'이 되지 않는다(Schift는 '검토', Ollama는 '참고').
+- 등급은 넘겨받은 것으로 시작한다. AI 판단만으로 '확실'이 되지 않는다(Schift는 '검토').
 - 규칙 탐지가 이미 찾은 자리와 겹치면 버린다. 규칙이 먼저다.
-  간접식별 후보만은 회색 영역 낱개 값과 겹쳐도 된다(소속이 든 경력 문장). 그 값을 통째로 덮는 후보는 버린다.
 - finding_id는 `D01-A0001`처럼 A를 붙여 규칙 탐지 번호와 섞이지 않게 한다. 문서를 더 불러와 다시
   탐지해도 AI 탐지 번호는 그대로다.
 """
@@ -12,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from privacy_operator.detect.detector import _context, _row_index, _sentence_of, _sentences
-from privacy_operator.detect.dictionaries import GRAY_CATEGORIES
 from privacy_operator.detect.finding import Finding, default_action, default_status
 from privacy_operator.detect.patterns import Candidate
 from privacy_operator.reader.blocks import ReadResult
@@ -45,8 +43,8 @@ def _trim(text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
-def to_findings(results: list[ReadResult], existing: list[Finding], spans: list[AiSpan], by: str, tier: str,
-                gray_overlap: bool = False) -> list[Finding]:
+def to_findings(results: list[ReadResult], existing: list[Finding], spans: list[AiSpan], by: str,
+                tier: str) -> list[Finding]:
     taken: dict[tuple[str, str], list[Finding]] = {}
     last: dict[str, int] = {}
     for f in existing:
@@ -69,7 +67,7 @@ def to_findings(results: list[ReadResult], existing: list[Finding], spans: list[
             continue
         file_id = f"D{sp.doc_index + 1:02d}"
         others = taken.setdefault((file_id, block.block_id), [])
-        if any(not _may_overlap(o, start, end, gray_overlap) for o in others if start < o.end and o.start < end):
+        if any(start < o.end and o.start < end for o in others):
             continue
         last[file_id] = last.get(file_id, 0) + 1
         rows = rows_of.setdefault(sp.doc_index, _row_index(res))
@@ -84,10 +82,3 @@ def to_findings(results: list[ReadResult], existing: list[Finding], spans: list[
         others.append(f)
         new.append(f)
     return new
-
-
-def _may_overlap(other: Finding, start: int, end: int, gray_overlap: bool) -> bool:
-    """겹쳐도 되는가: 회색 영역 낱개 값을 안에 품는 간접식별 후보만."""
-    if not gray_overlap or other.category not in GRAY_CATEGORIES:
-        return False
-    return start <= other.start and other.end <= end and (start, end) != (other.start, other.end)

@@ -16,8 +16,6 @@ from privacy_operator.alias.codes import AliasBook, value_key
 from privacy_operator.alias.pseudonymize import preview_codes, pseudonymize
 from privacy_operator.alias.vault import UnlockedVault
 from privacy_operator.detect import detect, escalate, rescan
-from privacy_operator.detect.ai.indirect import IndirectReport, find_indirect
-from privacy_operator.detect.ai.ollama_local import PARTIAL, LocalOllama, OllamaError
 from privacy_operator.detect.ai.schift import SchiftEngine, SchiftError, SchiftReport, find_names, is_installed
 from privacy_operator.detect.ai.spans import is_ai
 from privacy_operator.detect.dictionaries import GRAY_CATEGORIES
@@ -87,9 +85,8 @@ class AiRun:
 
     doc_indexes: list[int]
     findings: list[Finding]
-    errors: list[str]  # 오류 코드(예: OLLAMA_NOT_RUNNING). 원문 없음
+    errors: list[str]  # 오류 코드(예: SCHIFT_NOT_INSTALLED). 원문 없음
     schift: SchiftReport | None = None
-    indirect: IndirectReport | None = None
     cancelled: bool = False
 
     def __repr__(self) -> str:
@@ -220,7 +217,7 @@ class MissionWorkflow:
     # ---------------------------------------------------------------- AI 탐지(9단계, 선택)
 
     def ai_enabled(self) -> bool:
-        return self.settings.ai_schift or bool(self.settings.ai_ollama_model.strip())
+        return self.settings.ai_schift
 
     def ai_pending_docs(self) -> list[int]:
         """AI 탐지를 아직 하지 않은 문서 순번."""
@@ -235,34 +232,16 @@ class MissionWorkflow:
         docs = self.ai_pending_docs()
         run = AiRun(docs, [], [])
         existing = list(self.findings)
-        steps = (["schift"] if self.settings.ai_schift else []) + \
-            (["ollama"] if self.settings.ai_ollama_model.strip() else [])
-
-        def report(i):
-            return (lambda done, total: progress(i * 100 + done * 100 // max(total, 1), len(steps) * 100))                 if progress else None
-
-        for i, step in enumerate(steps):
-            if cancelled and cancelled():
-                break
+        if self.settings.ai_schift and not (cancelled and cancelled()):
             try:
-                if step == "schift":
-                    if not is_installed():
-                        raise SchiftError("SCHIFT_NOT_INSTALLED")
-                    with SchiftEngine() as engine:
-                        new, run.schift = find_names(self.results, existing, engine, docs, report(i), cancelled)
-                else:
-                    client = LocalOllama(self.settings.ollama_port)
-                    new, run.indirect = find_indirect(self.results, existing, client,
-                                                      self.settings.ai_ollama_model.strip(), docs, report(i),
-                                                      cancelled)
-                    if run.indirect.failed_chunks:
-                        run.errors.append(PARTIAL)  # 찾은 것은 넣고, 문서는 '마침'으로 두지 않는다
-            except (SchiftError, OllamaError) as e:
+                if not is_installed():
+                    raise SchiftError("SCHIFT_NOT_INSTALLED")
+                with SchiftEngine() as engine:
+                    new, run.schift = find_names(self.results, existing, engine, docs, progress, cancelled)
+                run.findings += new
+            except SchiftError as e:
                 run.errors.append(e.code)
-                log.warning("AI 탐지(%s) 실패: %s", step, e.code)
-                continue
-            existing += new
-            run.findings += new
+                log.warning("AI 탐지(schift) 실패: %s", e.code)
         run.cancelled = bool(cancelled and cancelled())
         return run
 
@@ -273,7 +252,7 @@ class MissionWorkflow:
         self.findings += run.findings
         if not run.errors and not run.cancelled:
             self.ai_scanned |= set(run.doc_indexes)
-        escalate(self.findings)  # 간접식별 후보도 조합 규칙을 같은 방식으로 적용한다
+        escalate(self.findings)  # AI가 찾은 것에도 조합 규칙을 같은 방식으로 적용한다
         self._refresh_preview()
         return run.findings
 
