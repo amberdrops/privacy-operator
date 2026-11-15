@@ -24,7 +24,8 @@ from privacy_operator.writer.xmlsweep import decode_text, text_segments
 
 log = logging.getLogger(__name__)
 
-OUTPUT_SUFFIX = {"hwpx": ".hwpx", "hwp": ".hwpx", "pdf": ".pdf", "xlsx": ".xlsx"}
+# 옛 엑셀(.xls)은 읽은 값만 담은 XLSX로 낸다(서식과 수식은 옮기지 못한다, 2026-11-15 사용자 결정)
+OUTPUT_SUFFIX = {"hwpx": ".hwpx", "hwp": ".hwpx", "pdf": ".pdf", "xlsx": ".xlsx", "xls": ".xlsx"}
 _BINARY = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".emf", ".wmf", ".bin", ".ole", ".ttf", ".otf")
 _GAP = "\x00"  # 글 조각을 이을 때 사이에 끼우는 글자. 숫자도 공백도 아니고 문서 글에 나오지 않는다
 # 재검사는 남은 것이 하나라도 있으면 그 사본을 버린다. 곳마다 이만큼 찾으면 더 찾지 않는다(기록용으로는 충분하다)
@@ -42,8 +43,11 @@ class OriginalOutput:
     source_name: str
     status: str
     path: Path | None = None
-    places: list[str] = field(default_factory=list)  # 남은 곳(값 없음)
+    places: list[str] = field(default_factory=list)  # 남은 곳(값 없음): 칸 주소, 쪽, 파일 안 이름
     finding_ids: list[str] = field(default_factory=list)
+    # 사본을 넣지 못한 까닭을 화면과 처리 기록에 남긴다(2026-11-15 사용자 결정: 나중에 오류를 고칠 때 보려고)
+    detail: str = ""  # 만들다 멈췄을 때 오류의 종류(메시지는 원문이 섞일 수 있어 남기지 않는다)
+    categories: list[str] = field(default_factory=list)  # 남은 값의 유형(전화, 생년월일 …). 패키지를 만들 때 채운다
 
     @property
     def ok(self) -> bool:
@@ -94,6 +98,15 @@ def _pdf_leftovers(path: Path, plan: ReplacementPlan) -> tuple[list[str], list[s
     return places, ids
 
 
+def _place(block) -> str:
+    """남은 곳을 사람이 찾아갈 수 있는 말로: 엑셀 칸 주소, 문서 속성, 메모, 쪽. 값이나 시트 이름은 넣지 않는다."""
+    loc = block.location
+    if block.kind == "metadata":
+        return f"문서 속성({loc.field})"
+    where = f"{loc.cell} 칸" if loc.cell else (f"{loc.page}쪽" if loc.page else block.block_id)
+    return f"메모({where})" if block.kind == "comment" else where
+
+
 def verify(path: Path, fmt: str, plan: ReplacementPlan, reader) -> tuple[list[str], list[str]]:
     """남은 곳과 finding_id. 둘 다 비면 통과."""
     places, ids = [], []
@@ -104,21 +117,29 @@ def verify(path: Path, fmt: str, plan: ReplacementPlan, reader) -> tuple[list[st
             for b in blocks:
                 hits = plan.leftovers(b.text, limit=_ENOUGH)
                 if hits:
-                    places.append(b.block_id)
+                    places.append(_place(b))
                     ids += hits
                     if len(places) >= _ENOUGH:
                         break
     p2, i2 = _pdf_leftovers(path, plan) if fmt == "pdf" else _zip_leftovers(path, plan)
-    return places + p2, list(dict.fromkeys(ids + i2))
+    return list(dict.fromkeys(places + p2)), list(dict.fromkeys(ids + i2))
+
+
+def _cell_texts(src: Path, reader) -> dict[tuple[str, str], str]:
+    """엑셀 칸마다 읽기 엔진이 읽은 글자: (시트 이름, 칸 주소) → 글자. 숫자나 날짜로 저장된 칸을 바꿀 때 쓴다."""
+    if reader is None:
+        return {}
+    return {(b.location.sheet, b.location.cell): b.text for b in reader.read(src).blocks
+            if b.kind == "cell" and b.location.sheet and b.location.cell}
 
 
 def write_original(src: Path, fmt: str, plan: ReplacementPlan, out_dir: Path, stem: str, reader) -> OriginalOutput:
     """src를 원본 형식으로 가명처리해 out_dir/<stem><확장자>에 둔다. 검사를 통과할 때만."""
     from privacy_operator.writer.hwpx import write_hwpx
     from privacy_operator.writer.pdf import write_pdf
-    from privacy_operator.writer.xlsx import write_xlsx
+    from privacy_operator.writer.xlsx import write_xlsx, write_xlsx_values
 
-    if fmt not in OUTPUT_SUFFIX:
+    if fmt not in OUTPUT_SUFFIX or (fmt == "xls" and reader is None):
         return OriginalOutput(src.name, UNSUPPORTED)
     suffix = OUTPUT_SUFFIX[fmt]
     with tempfile.TemporaryDirectory(prefix="po-") as tmp:
@@ -129,11 +150,13 @@ def write_original(src: Path, fmt: str, plan: ReplacementPlan, out_dir: Path, st
                 write_hwpx(src, staged, plan, work, is_hwp=(fmt == "hwp"), reader=reader)
             elif fmt == "pdf":
                 write_pdf(src, staged, plan)
+            elif fmt == "xls":
+                write_xlsx_values(reader.read(src).blocks, staged, plan)
             else:
-                write_xlsx(src, staged, plan)
+                write_xlsx(src, staged, plan, _cell_texts(src, reader))
         except Exception as e:  # noqa: BLE001 - 형식 하나가 실패해도 나머지는 만든다
             log.warning("원본 형식 사본 실패 (%s, %s)", fmt, type(e).__name__)  # 메시지에는 경로가 있을 수 있다
-            return OriginalOutput(src.name, ERROR)
+            return OriginalOutput(src.name, ERROR, detail=type(e).__name__)
         places, ids = verify(staged, "pdf" if fmt == "pdf" else "zip", plan, reader)
         if places:
             log.warning("원본 형식 사본에 확정 값이 남음 (%s): 곳 %d, 탐지 %s", fmt, len(places), ids[:10])

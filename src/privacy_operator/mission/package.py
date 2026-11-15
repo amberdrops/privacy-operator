@@ -34,6 +34,7 @@ from privacy_operator.writer.plan import ReplacementPlan
 log = logging.getLogger(__name__)
 
 SCHEMA = "privacy-operator/mission@1"
+_PLACES_KEPT = 20  # 처리 기록에 적는 '값이 남은 자리' 수
 RULE_FILES = ("AGENT_RULES.md", "CLAUDE.md", "AGENTS.md")
 
 
@@ -136,14 +137,22 @@ def build_package(settings: Settings, mission_id: str, docs: list[PseudoDocument
     rules = agent_rules_text(mission_id, removed)
 
     # 2. 쓰고, 패키지 전체를 다시 검사
+    skipped: list[dict] = []  # 원본 형식 사본을 넣지 못한 문서와 그 까닭
     try:
         (root / "docs").mkdir(parents=True)
         for name, text, _ in texts:
             (root / "docs" / name).write_text(text, encoding="utf-8", newline="\n")
         if sources and reader is not None:
             plan = ReplacementPlan(findings, docs)
+            category_of = {f.finding_id: f.category for f in findings}
             for d, src, (md_name, _, _) in zip(docs, sources, texts):
                 out = write_original(Path(src), d.format, plan, root / "docs", md_name[:-3], reader)
+                out.categories = sorted({category_of[i] for i in out.finding_ids if i in category_of})
+                if not out.ok:
+                    # 사본을 넣지 못한 까닭을 처리 기록에 남긴다. 파일은 마크다운 이름으로 적는다(원래 이름에는 값이 있을 수 있다)
+                    skipped.append({"file": f"docs/{md_name}", "format": d.format, "reason": out.status,
+                                    "error": out.detail, "left_categories": out.categories,
+                                    "left_places": out.places[:_PLACES_KEPT]})
                 if originals is not None:
                     originals.append(out)
                 if out.ok:
@@ -188,6 +197,9 @@ def build_package(settings: Settings, mission_id: str, docs: list[PseudoDocument
         "alias_count": len(book.entries()),
         "removed_categories": removed,
     }
+    if skipped:
+        # 나중에 원인을 찾을 때 본다(2026-11-15 사용자 결정). 값은 없다: 까닭, 오류 종류, 남은 값의 유형과 자리
+        log_record["originals_skipped"] = skipped
     check_blocklist(json.dumps(log_record, ensure_ascii=False), findings, bundles)
     vault.save_log(mission_id, log_record)
     log.info("작전 패키지 %s: 문서 %d개, 가명코드 %d개", mission_id, len(files), len(mission["alias_legend"]))

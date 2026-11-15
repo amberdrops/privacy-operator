@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from privacy_operator.detect.dictionaries import (
@@ -10,6 +11,8 @@ from privacy_operator.detect.dictionaries import (
     GRAY_HEADERS,
     NAME_HEADER_SUFFIXES,
     NAME_HEADERS,
+    SUB_NAME_HEADERS,
+    looks_like_name,
     normalize_header,
 )
 from privacy_operator.reader.blocks import (
@@ -41,6 +44,11 @@ def header_rows(cells: list[list[dict]], has_header: bool) -> list[int]:
     작은 제목). 바로 윗 머리글 줄에 가로로 합친 칸이 있고 아랫줄에 아는 칸 제목이 있으면 그 줄도 머리글로 본다.
     아는 칸 제목이 있을 때만 넓혀서, 보통 데이터 줄을 머리글로 착각하지 않는다(2026-11-08, 실제 연수 문서의
     강사명 칸 아래 이름 네 개를 놓쳤다).
+
+    엑셀 명단은 표 위에 제목 줄을 두는 일이 많다(`2026학년도 … 명단`, 그 아래 `(11. 15. 기준)`, 그 아래 `연번 | 성명 …`).
+    엔진은 맨 윗줄만 머리글로 주므로, 글자가 한 칸뿐인 제목 줄 아래에서 진짜 머리글 줄을 찾는다. 제목을 합치지
+    않았거나 부제 줄이 끼어 있어도 찾는다. 그 줄 아래 값이 머리글과 맞을 때만이다(_values_below, 2026-11-15:
+    성명 열을 못 알아봐 이름이 '검토'로만 뜨고 소속, 연락처 열 제목이 값처럼 읽혔다).
     """
     rows = [r for r, row in enumerate(cells) if any(c.get("isHeader") for c in row)]
     if not rows and has_header and cells:
@@ -49,11 +57,51 @@ def header_rows(cells: list[list[dict]], has_header: bool) -> list[int]:
         nxt = rows[-1] + 1
         if nxt >= len(cells) or nxt in rows:
             break
-        merged_above = any(int(c.get("colSpan") or 1) > 1 for c in cells[rows[-1]])
-        if not (merged_above and any(_is_header_word(c.get("text")) for c in cells[nxt])):
-            break
-        rows.append(nxt)
+        top = cells[rows[-1]]
+        if any(int(c.get("colSpan") or 1) > 1 for c in top) and (
+                any(_is_header_word(c.get("text")) for c in cells[nxt]) or _is_pair_row(cells[nxt])):
+            rows.append(nxt)
+            continue
+        if _lone_text(top):
+            look = nxt  # 부제, 작성일처럼 글자가 한 칸뿐인 줄은 건너뛴다
+            while look - nxt < _TITLE_SKIP and look + 1 < len(cells) and _lone_text(cells[look]):
+                look += 1
+            if any(_is_header_word(c.get("text")) for c in cells[look]) and _values_below(cells, look):
+                rows.extend(range(nxt, look + 1))
+                continue
+        break
     return rows
+
+
+_TITLE_SKIP = 2  # 제목 줄 아래에서 건너뛰는 부제 줄 수
+_VALUE_CHARS = re.compile(r"[\d@]")
+
+
+def _is_pair_row(row: list[dict]) -> bool:
+    """`담당자` 아래를 `정 | 부`로 나눈 머리글 줄. 둘이 함께 있을 때만(한 칸만 `정`인 줄은 데이터일 수 있다)."""
+    return SUB_NAME_HEADERS <= {normalize_header(c.get("text") or "") for c in row}
+
+
+def _lone_text(row: list[dict]) -> bool:
+    """글자가 든 칸이 하나뿐인 줄(표 위의 제목, 부제, 작성일). 가로로 합쳤든 아니든."""
+    return sum(1 for c in row if (c.get("text") or "").strip()) <= 1
+
+
+def _values_below(cells: list[list[dict]], r: int) -> bool:
+    """r줄이 머리글이라는 증거: 이름 칸 제목 바로 아래 두 줄이 이름 모양이거나, 연락처 같은 형식 칸 제목 아래 두 줄에
+    숫자나 @가 있다. 신청서처럼 이름표와 값이 옆으로 놓인 표(`성명 | 김민수`)는 이름표 아래가 또 이름표라서 아니다.
+    그런 줄을 머리글로 보면 옆 칸의 이름을 놓친다."""
+    below = cells[r + 1: r + 3]
+    for c, cell in enumerate(cells[r]) if below else ():
+        h = normalize_header(cell.get("text") or "")
+        under = [(row[c].get("text") or "").strip() if c < len(row) else "" for row in below]
+        if h in FORMAT_HEADERS:
+            if all(_VALUE_CHARS.search(t) for t in under):
+                return True
+        elif h in NAME_HEADERS or (h and h.endswith(NAME_HEADER_SUFFIXES)):
+            if all(looks_like_name(re.sub(r"\s", "", t)) and not _is_header_word(t) for t in under):
+                return True
+    return False
 
 
 def column_headers(cells: list[list[dict]], has_header: bool) -> dict[int, tuple[str, ...]]:
@@ -106,14 +154,15 @@ def convert(raw: dict[str, Any], fmt: str) -> tuple[list[Block], list[BlindSpot]
     blocks: list[Block] = []
     blind: list[BlindSpot] = []
     table_index = -1
-    sheet: str | None = None  # XLSX: 표 앞의 heading이 시트 이름이다
+    sheet: str | None = None  # 엑셀: 표 앞의 heading이 시트 이름이다
+    excel = fmt in ("xlsx", "xls")
 
     for bi, rb in enumerate(raw.get("blocks") or []):
         btype = rb.get("type")
         page = rb.get("pageNumber")
         if btype in ("paragraph", "heading", "list", "quote"):
             text = rb.get("text") or ""
-            if fmt == "xlsx" and btype == "heading":
+            if excel and btype == "heading":
                 sheet = text
             if text.strip():
                 kind = HEADING if btype == "heading" else PARAGRAPH
@@ -133,7 +182,7 @@ def convert(raw: dict[str, Any], fmt: str) -> tuple[list[Block], list[BlindSpot]
                         continue
                     path = headers.get(c, ())
                     a1 = None
-                    if fmt == "xlsx" and src_rows and src_cols and r < len(src_rows) and c < len(src_cols):
+                    if excel and src_rows and src_cols and r < len(src_rows) and c < len(src_cols):
                         a1 = _a1(src_rows[r], src_cols[c])
                     loc = Location(page=page, block_index=bi, table_index=table_index, row=r, col=c,
                                    header=path[-1] if path else None, header_path=path,

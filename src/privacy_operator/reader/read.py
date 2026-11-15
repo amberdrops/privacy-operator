@@ -24,7 +24,9 @@ from privacy_operator.reader.extras import (
     zip_blind_spots,
 )
 
-SUPPORTED = {".hwpx": "hwpx", ".hwp": "hwp", ".pdf": "pdf", ".xlsx": "xlsx"}
+# 옛 엑셀(.xls)은 엔진이 칸 글자를 읽어 준다. 사본은 읽은 값만 담은 XLSX로 낸다(writer.xlsx.write_xlsx_values).
+# 메모와 문서 속성은 읽지 못하지만 마크다운에도 사본에도 들어가지 않는다(2026-11-15)
+SUPPORTED = {".hwpx": "hwpx", ".hwp": "hwp", ".pdf": "pdf", ".xlsx": "xlsx", ".xls": "xls"}
 
 # 이미지 바이트는 받지 않는다. OCR은 끈다(모델 내려받기가 필요하고, 오프라인에서 막힌다).
 _PARSE_OPTIONS = {"images": False, "ocr": False}

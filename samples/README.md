@@ -31,6 +31,7 @@
 | HWPX | zipfile + XML | HWPX는 zip 묶음이다. `mimetype`(압축 없이 맨 앞), `version.xml`, `META-INF/container.xml`, `Contents/content.hpf`, `Contents/header.xml`, `Contents/section0.xml`을 만든다. 본문 문단과 표(`hp:tbl`)는 `section0.xml`에 쓴다 |
 
 - HWPX를 스크립트로 만든 뒤에는 **한글에서 열리는지, kordoc이 읽는지** 확인한다. 둘 중 하나라도 안 되면 한글에서 빈 문서를 새로 만들어 같은 내용을 입력하고 `.hwpx`로 저장한 파일을 쓴다. 이때도 값은 스크립트의 지어낸 값을 그대로 옮긴다.
+- `참가자명단_샘플.xls`는 옛 엑셀 형식을 읽는 시험에 쓴다. 스크립트로는 만들 수 없어 엑셀에서 직접 저장했다(시트 `명단`, 병합한 제목 줄, `연번, 성명, 소속, 연락처` 머리글, 세 줄). 저장할 때 작성자 같은 문서 속성을 지운다(엑셀의 '문서 검사'나 `RemovePersonalInformation`). 정답 목록은 없다.
 - `연수운영계획_샘플.hwp`는 위 HWPX를 한글에서 `.hwp`로 다시 저장한 것이다. 스크립트로는 만들 수 없다. 정답 목록은 HWPX의 것을 같이 쓴다. **HWPX 내용을 바꿔 다시 만들면 HWP도 한글에서 다시 저장한다.**
 
 ### 정답 목록 형식

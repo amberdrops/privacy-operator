@@ -215,6 +215,101 @@ def test_xlsx_formula_and_sheet_name(tmp_path, reader):
     assert ws2["B2"].value == '="[이름-01]"&" 님"'
 
 
+def test_xlsx_values_kept_outside_the_cells(tmp_path, reader):
+    """칸 글자가 칸 밖에 한 벌 더 저장되는 곳: 엑셀 '표'의 열 이름, 메일 링크, 목록 유효성, 필터에 골라 둔 값.
+    칸만 바꾸면 여기에 원문이 남아 재검사에서 사본이 빠졌다(2026-11-15, 설문 응답 시트)."""
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.worksheet.filters import AutoFilter, FilterColumn, Filters
+    from openpyxl.worksheet.table import Table
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(("연번", "성명", "이메일", "담당", "김민수 강사의 강의 만족도"))
+    ws.append((1, "이도윤", "a.b@example.kr", "김민수", "매우 만족"))
+    ws.append((2, "박서연", "c.d@example.kr", "김민수", "만족"))
+    ws["C2"].hyperlink = "mailto:a.b@example.kr"
+    ws["C3"].hyperlink = "mailto:c.d@example.kr"
+    ws["E2"].hyperlink = "https://example.kr/guide"  # 바뀔 것이 없는 링크는 그대로 둔다
+    ws.add_table(Table(displayName="응답표", ref="A1:E3", autoFilter=AutoFilter(
+        ref="A1:E3", filterColumn=[FilterColumn(colId=1, filters=Filters(filter=["이도윤", "박서연"]))])))
+    dv = DataValidation(type="list", formula1='"김민수,이도윤"', promptTitle="담당", prompt="김민수 또는 이도윤")
+    dv.add("D2:D3")
+    ws.add_data_validation(dv)
+    src = tmp_path / "표.xlsx"
+    wb.save(src)
+    with zipfile.ZipFile(src) as z:  # 고치기 전에는 이 세 곳에 값이 남았다
+        assert "김민수" in z.read("xl/tables/table1.xml").decode("utf-8")
+        assert "a.b@example.kr" in z.read("xl/worksheets/_rels/sheet1.xml.rels").decode("utf-8")
+
+    res = reader.read(src)
+    findings = decide(detect([res]))
+    docs = pseudonymize([res], findings, AliasBook("M-20261107-01"))
+    out = write_original(src, "xlsx", ReplacementPlan(findings, docs), tmp_path / "out", "표", reader)
+    assert out.status == OK, out.places
+
+    ws2 = load_workbook(out.path).active
+    code = {f.raw_value: f.replacement for f in findings if f.replacement}
+    table = ws2.tables["응답표"]
+    assert [c.name for c in table.tableColumns] == [c.value for c in ws2[1]]  # 열 이름은 머리글 칸과 같아야 한다
+    assert table.tableColumns[4].name == f"{code['김민수']} 강사의 강의 만족도"
+    assert table.autoFilter.filterColumn[0].filters.filter == [code["이도윤"], code["박서연"]]
+    assert ws2["C2"].value == code["a.b@example.kr"] and ws2["C2"].hyperlink is None and ws2["C3"].hyperlink is None
+    assert ws2["E2"].hyperlink.target == "https://example.kr/guide"
+    [dv2] = ws2.data_validations.dataValidation
+    assert dv2.formula1 == f'"{code["김민수"]},{code["이도윤"]}"' and dv2.prompt == f"{code['김민수']} 또는 {code['이도윤']}"
+
+
+def test_xlsx_numbers_and_dates_stored_as_values(tmp_path, reader):
+    """숫자로 저장된 전화번호, 계좌번호, 주민등록번호와 날짜로 저장된 생년월일. 글자 칸만 바꾸던 때는 이 칸들에
+    원문이 남아 재검사에서 사본이 빠졌다(2026-11-15)."""
+    import datetime
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "명단"
+    ws.append(("성명", "연락처", "계좌번호", "주민등록번호", "생년월일", "점수"))
+    ws.append(("김민수", 1000000012, 3520000000013, 9001011000000, datetime.date(1990, 1, 1), 87))
+    ws.append(("이도윤", 1000000013, 3520000000014, 9001012000000, datetime.datetime(1991, 2, 3), 92.5))
+    src = tmp_path / "숫자.xlsx"
+    wb.save(src)
+    res = reader.read(src)
+    findings = decide(detect([res]))
+    assert {f.category for f in findings} >= {"전화", "계좌번호", "주민등록번호", "생년월일"}
+    docs = pseudonymize([res], findings, AliasBook("M-20261107-01"))
+    out = write_original(src, "xlsx", ReplacementPlan(findings, docs), tmp_path / "out", "숫자", reader)
+    assert out.status == OK, out.places
+    ws2 = load_workbook(out.path).active
+    row = [c.value for c in ws2[2]]
+    assert row[0] == "[이름-01]" and row[1] == "[전화-01]" and row[4] == "[생년월일-01]"
+    assert row[2] == row[3] == "[삭제]"  # 계좌번호와 주민등록번호는 기본이 삭제
+    assert [c.value for c in ws2[3]][5] == 92.5 and row[5] == 87  # 바꿀 것이 없는 숫자 칸은 그대로
+
+
+def test_xlsx_with_a_whole_row_merged_title(tmp_path, reader):
+    """첫 행을 행 전체로 병합한 명단(A1:XFD1)도 사본이 나온다. 줄마다 16,384칸을 돌면 몇 분이 걸렸다."""
+    import time
+
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = "지어낸 연수 참가자 명단"
+    ws.merge_cells("A1:XFD1")
+    ws.append(("연번", "성명", "연락처"))
+    for i in range(300):
+        ws.append((i + 1, "김민수" if i % 2 else "이도윤", f"010-0000-{i:04d}"))
+    src = tmp_path / "행병합.xlsx"
+    wb.save(src)
+    started = time.perf_counter()
+    res = reader.read(src)
+    findings = decide(detect([res]))
+    assert sum(f.category == "이름" and f.tier == "확실" for f in findings) == 300  # 제목 줄 아래 머리글을 알아본다
+    docs = pseudonymize([res], findings, AliasBook("M-20261107-01"))
+    out = write_original(src, "xlsx", ReplacementPlan(findings, docs), tmp_path / "out", "행병합", reader)
+    assert out.status == OK, out.places
+    assert time.perf_counter() - started < 30  # 고치기 전에는 이 크기에서 3분쯤 걸렸다
+    ws2 = load_workbook(out.path).active
+    assert ws2["B3"].value == "[이름-01]" and "A1:XFD1" in [str(r) for r in ws2.merged_cells.ranges]
+
+
 # ---------------------------------------------------------------- 재검사가 막는다
 
 def test_verify_finds_values_in_any_zip_part(tmp_path):
@@ -270,13 +365,16 @@ def test_failed_check_keeps_file_out_and_temp_is_removed(tmp_path, monkeypatch, 
 
     monkeypatch.setattr(original_mod.tempfile, "TemporaryDirectory", tracking)
     monkeypatch.setattr("privacy_operator.writer.xlsx.write_xlsx",
-                        lambda src, dst, plan: shutil.copyfile(src, dst))
+                        lambda src, dst, plan, *a: shutil.copyfile(src, dst))
     src = SAMPLES / "만족도조사_샘플.xlsx"
     res = reader.read(src)
     findings = decide(detect([res]))
     docs = pseudonymize([res], findings, AliasBook("M-20261107-01"))
     out = write_original(src, "xlsx", ReplacementPlan(findings, docs), tmp_path / "out", "x", reader)
     assert out.status == LEFTOVER and out.path is None and out.places
+    # 남은 곳은 찾아갈 수 있는 말로 적는다(칸 주소, 문서 속성, 파일 안 이름). 값은 없다
+    assert {"A2 칸", "메모(A3 칸)", "문서 속성(creator)", "xl/worksheets/sheet1.xml"} <= set(out.places)
+    assert not any(v in " ".join(out.places) for v in _secrets(findings, docs))
     assert not (tmp_path / "out").exists() or not list((tmp_path / "out").iterdir())
     assert made_dirs and not any(d.exists() for d in made_dirs)
 
@@ -288,7 +386,36 @@ def test_writer_error_is_reported_not_raised(tmp_path, monkeypatch, reader):
     monkeypatch.setattr("privacy_operator.writer.pdf.write_pdf", boom)
     plan = ReplacementPlan([])
     out = write_original(SAMPLES / "강사계약_샘플.pdf", "pdf", plan, tmp_path, "x", reader)
-    assert out.status == ERROR
+    assert out.status == ERROR and out.detail == "RuntimeError"  # 오류의 종류만 남긴다(메시지는 남기지 않는다)
+
+
+def test_skipped_copy_is_explained_in_the_processing_record(tmp_path, reader):
+    """사본을 넣지 못하면 까닭을 금고의 처리 기록에 남긴다(2026-11-15 사용자 결정: 나중에 오류를 고칠 때 본다).
+    여기서는 사람 이름으로 지은 '이름 정의'(저장이 바꾸지 못하는 곳)가 있는 엑셀."""
+    from openpyxl.workbook.defined_name import DefinedName
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(("성명", "연락처"))
+    ws.append(("김민수", "010-0000-0012"))
+    wb.defined_names["김민수"] = DefinedName("김민수", attr_text="Sheet!$B$2")
+    src = tmp_path / "김민수_명단.xlsx"
+    wb.save(src)
+    res = reader.read(src)
+    findings = decide(detect([res]))
+    book = AliasBook("M-20261107-01")
+    docs = pseudonymize([res], findings, book)
+    settings = Settings(vault_dir=str(tmp_path / "vault"), workspace_dir=str(tmp_path / "ws"))
+    vault = Vault(settings.vault_path).create("pw-for-test")
+    originals = []
+    build_package(settings, "M-20261107-01", docs, findings, book, vault, record=ProcessingRecord(),
+                  sources=[src], reader=reader, originals=originals)
+    [out] = originals
+    assert (out.status, out.places, out.categories) == (LEFTOVER, ["xl/workbook.xml"], ["이름"])
+    record = json.loads((settings.vault_path / "M-20261107-01" / "log.json").read_text(encoding="utf-8"))
+    assert record["originals_skipped"] == [{
+        "file": "docs/[이름-01]_명단.md", "format": "xlsx", "reason": "leftover", "error": "",
+        "left_categories": ["이름"], "left_places": ["xl/workbook.xml"]}]
 
 
 # ---------------------------------------------------------------- 패키지와 복원

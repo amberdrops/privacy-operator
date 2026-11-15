@@ -1,5 +1,7 @@
 """kordoc 결과 → 공통 블록 변환. 엔진 없이 지어낸 결과 JSON으로 시험한다."""
 
+import pytest
+
 from privacy_operator.reader.blocks import CELL, COMMENT, METADATA, Block, Location, ReadResult
 from privacy_operator.reader.convert import column_headers, convert
 
@@ -69,6 +71,59 @@ def test_data_row_under_merged_title_stays_data():
     ]
     pos = _by_pos(convert(_table_raw(cells), "hwpx")[0])
     assert not pos[(1, 1)].is_header and pos[(1, 1)].location.header == "강사"
+
+
+def _roster(*top):
+    """엑셀 명단 꼴: 위에 제목 줄들, 그 아래 머리글과 값. 엔진은 맨 윗줄만 머리글로 준다(hasHeader)."""
+    rows = [*top, [_cell("연번"), _cell("성명"), _cell("소속"), _cell("연락처")],
+            [_cell("1"), _cell("가나다"), _cell("예시학교"), _cell("010-0000-0001")],
+            [_cell("2"), _cell("김민수"), _cell("예시학교"), _cell("010-0000-0002")]]
+    width = len(rows[-1])
+    return [row + [_cell("") for _ in range(width - len(row))] for row in rows]
+
+
+@pytest.mark.parametrize("top", [
+    [[_cell("2026학년도 지어낸 명단")]],  # 합치지 않은 제목
+    [[_cell("2026학년도 지어낸 명단", colspan=4)], [_cell("(2026. 11. 15. 기준)", colspan=4)]],  # 제목과 부제
+    [[_cell("지어낸 명단", colspan=4)], [_cell("작성일: 2026. 11. 15.")], [_cell("단위: 명")]],  # 부제 두 줄
+], ids=["제목", "제목과 부제", "제목과 부제 두 줄"])
+def test_header_row_is_found_under_title_rows(top):
+    """표 위에 제목 줄이 있는 엑셀 명단(2026-11-15). 성명 열을 알아봐야 이름이 '확실'로 잡힌다."""
+    cells = _roster(*top)
+    pos = _by_pos(convert(_table_raw(cells), "xlsx")[0])
+    head = len(top)
+    assert pos[(head, 1)].is_header and pos[(head, 1)].text == "성명"
+    assert not pos[(head + 1, 1)].is_header and pos[(head + 1, 1)].location.header == "성명"
+    assert pos[(head + 2, 3)].location.header == "연락처"
+
+
+def test_form_rows_under_a_title_are_not_a_header():
+    """제목 아래가 이름표와 값이 옆으로 놓인 신청서면 그 줄은 머리글이 아니다(머리글로 보면 옆 칸의 이름을 놓친다)."""
+    cells = [[_cell("지어낸 신청서"), _cell(""), _cell(""), _cell("")],
+             [_cell("성명"), _cell("김민수"), _cell("소속"), _cell("예시학교")],
+             [_cell("연락처"), _cell("010-0000-0001"), _cell("이메일"), _cell("a@example.kr")],
+             [_cell("주소"), _cell("가상시 예시로 1"), _cell(""), _cell("")]]
+    pos = _by_pos(convert(_table_raw(cells), "xlsx")[0])
+    assert not pos[(1, 1)].is_header and pos[(1, 1)].location.row_label == "성명"
+    assert not pos[(2, 1)].is_header
+
+
+def test_name_header_split_into_jeong_and_bu_is_a_header_row():
+    cells = [[_cell("업무", header=True), _cell("담당자", colspan=2, header=True), _cell("", header=True)],
+             [_cell(""), _cell("정"), _cell("부")],
+             [_cell("개인정보 보호"), _cell("가나다"), _cell("라마바")]]
+    pos = _by_pos(convert(_table_raw(cells), "hwpx")[0])
+    assert pos[(1, 2)].is_header and pos[(2, 2)].location.header_path == ("담당자", "부")
+    # 한 칸만 `정`인 줄은 데이터다
+    cells[1] = [_cell("정"), _cell("가나다"), _cell("라마바")]
+    assert not _by_pos(convert(_table_raw(cells), "hwpx")[0])[(1, 1)].is_header
+
+
+def test_old_excel_gets_sheet_names_and_addresses_too():
+    raw = _table_raw([[_cell("성명")], [_cell("가나다")]], sourceRows=[0, 1], sourceCols=[1])
+    raw["blocks"].insert(0, {"type": "heading", "text": "명단", "pageNumber": 1, "level": 2})
+    cell = _by_pos(convert(raw, "xls")[0])[(1, 0)]
+    assert (cell.location.sheet, cell.location.cell) == ("명단", "B2")
 
 
 def test_has_header_without_cell_flags_uses_first_row():
