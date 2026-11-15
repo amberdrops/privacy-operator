@@ -23,12 +23,16 @@ from privacy_operator.detect.dictionaries import (
     RANK_WORDS,
     ROLE_AFTER,
     ROLE_BEFORE,
+    ROLE_SUFFIXES,
+    SURNAMES,
+    NAME_HEADERS,
+    WEAK_NAME_HEADERS,
     SHORT_NOT_NAMES,
     SIGN_ROLES,
     SPACED_NAME_TAILS,
+    SUB_NAME_HEADERS,
     TITLE_WORDS,
     WEAK_NAME_HEADER_SUFFIXES,
-    WEAK_NAME_HEADERS,
     WEAK_ROLE_AFTER,
     WEAK_ROLE_BEFORE,
     looks_like_name,
@@ -171,6 +175,13 @@ class RuleSet:
         # 전각 숫자와 여러 줄표를 한 모양으로 맞춘 글에서 찾는다. 글자 수가 같아 위치는 원문 그대로다
         text = fold(block.text)
         header = self.header_key(block.location.header)
+        if header in SUB_NAME_HEADERS:
+            # `담당자` 아래를 `정 | 부`로 나눈 머리글: 위 제목이 이름 칸 제목이면 그 제목의 열로 본다
+            for upper in reversed(block.location.header_path[:-1]):
+                key = self.header_key(upper)
+                if self.is_name_header(key):
+                    header = key
+                    break
         header_cat = FORMAT_HEADERS.get(header)
 
         if block.kind == METADATA and block.location.field in AUTHOR_FIELDS:
@@ -202,8 +213,9 @@ class RuleSet:
         out = []
         # 결재란 머리글(직위, 결재 역할)과 `학생`, `~교사` 같은 제목은 이름 칸일 수 있지만 확실하지 않다.
         # 이름 모양일 때만 '검토'로 본다
-        sign = not self.is_name_header(header) and self.is_weak_name_header(header)
-        loose = sign and not (header in _SIGN_HEADERS or _is_title(header))  # 사람 칸인지조차 모르는 제목
+        sub = header in SUB_NAME_HEADERS  # 제목이 `정`, `부`뿐인 열: 이름 모양이고 낱말 끝 글자가 아닐 때만
+        sign = not self.is_name_header(header) and (self.is_weak_name_header(header) or sub)
+        loose = sign and not (header in _SIGN_HEADERS or _is_title(header) or sub)  # 사람 칸인지조차 모르는 제목
         if self.is_name_header(header) or sign:
             spaced = spaced_names(text)
             for start, end in _parts(text, spaced):
@@ -216,8 +228,9 @@ class RuleSet:
                     out += [Candidate(s, e, NAME, tier, {BY_COLUMN}) for s, e in inside]
                     continue
                 value = text[start:end]
-                first = value.split()[0]
-                if len(value.split()) > 1 and looks_like_name(first):  # `김민수 교수` → 이름만
+                first = re.match(r"[가-힣]*", value).group()
+                # `김민수 교수`, `김민수(교수요원)` → 이름만
+                if first != value and value[len(first)] in " \t([" and looks_like_name(first):
                     end = start + len(first)
                     value = first
                 if not looks_like_name(value) and _is_sentence(value):
@@ -232,6 +245,8 @@ class RuleSet:
                     continue
                 if sign and not looks_like_name(value):
                     continue
+                if sub and not (_weak_name_ok(value) if len(value) >= 3 else _short_name_ok(value)):
+                    continue  # `부 | 연구부`
                 if loose and not _weak_name_ok(value):
                     continue  # `수혜자 | 전교생`, `보건교사 | 미정`
                 tier = TIER_CERTAIN if looks_like_name(value) and not sign else TIER_REVIEW
@@ -268,14 +283,18 @@ class RuleSet:
                     end = first[1]
                     out.append(Candidate(rs, end, NAME, TIER_CERTAIN, {BY_LABEL}))
                 else:
-                    tok = re.match(r"[^\s,()\[\]]+", text[rs:re_])
+                    # `강사: 교수요원 정하람`, `담당자: 주무관 박서연`: 앞에 붙은 역할어와 직위는 건너뛴다
+                    at = _skip_titles(text, rs, re_, listed=True)
+                    tok = re.match(r"[^\s,()\[\]]+", text[at:re_]) if at is not None else None
                     if not tok:
                         continue
                     value = strip_josa(tok.group())
-                    if len(value) < 2 or value in NOT_NAMES or _is_title(value):
+                    if len(value) < 2 or value in NOT_NAMES or is_role_word(value):
                         continue  # `참석자: 전 교직원`의 '전', `참석자: 공무원`, `참석자: 사무관`: 한 글자, 사전의 낱말, 직위
+                    if at != rs and not looks_like_name(value):
+                        continue  # `참석자: 교장 포함 12명`: 직위 뒤 낱말은 이름 모양일 때만
                     tier = TIER_CERTAIN if looks_like_name(value) else TIER_REVIEW
-                    end = rs + len(value)
+                    rs, end = at, at + len(value)
                     out.append(Candidate(rs, end, NAME, tier, {BY_LABEL}))
                     if tier != TIER_CERTAIN:
                         continue
@@ -370,6 +389,11 @@ class RuleSet:
         span = _trimmed(text, 0, len(text))
         if not span:
             return []
+        # 작성자가 직위나 역할어인 문서가 많다(`주무관`, `담당`, `교수요원`). 이름이 아니다. 앞에 붙은 것은 뗀다
+        start = _skip_titles(text, *span)
+        if start is None or is_role_word(text[start:span[1]]):
+            return []
+        span = (start, span[1])
         value = text[span[0]:span[1]]
         if looks_like_name(value):
             return [Candidate(*span, NAME, TIER_CERTAIN, {BY_METADATA})]
@@ -381,6 +405,11 @@ class RuleSet:
 _TITLES = frozenset(TITLE_WORDS) | frozenset(SIGN_ROLES) | frozenset(ROLE_AFTER) | frozenset(ROLE_BEFORE)
 _SIGN_HEADERS = frozenset(SIGN_ROLES) | frozenset(TITLE_WORDS)
 _LEADING_TITLE = re.compile(rf"(?:{_alt(SIGN_ROLES)}|{_COMPOUND_TITLE}|{_SIGN_DATE})(?:\s+|$)")
+_LEADING_WORD = re.compile(r"([가-힣]+)(?:\s+|$)")
+_LEADING_LISTED = re.compile(r"([가-힣]+)(?:\s*[,、]\s*|\s+|$)")
+_TRAILING_WORD = re.compile(r"\s+([가-힣]+)$")
+_ROLE_WORDS = (frozenset(ROLE_BEFORE) | frozenset(WEAK_ROLE_BEFORE) | frozenset(WEAK_ROLE_AFTER) | NAME_HEADERS
+               | WEAK_NAME_HEADERS)
 
 
 def _is_title(word: str) -> bool:
@@ -388,12 +417,41 @@ def _is_title(word: str) -> bool:
     return word in _TITLES or any(word.endswith(t) and len(word) > len(t) for t in TITLE_WORDS)
 
 
+def is_role_word(word: str) -> bool:
+    """사람을 가리키지만 이름은 아닌 낱말: 직위, 역할, 직종(`주무관`, `담당`, `교수요원`, `보건교사`, `주무관님`).
+
+    이름이 올 자리(이름 칸, 이름표 뒤, 문서 속성의 작성자, AI가 준 자리)에 이름 대신 들어가거나 이름 앞뒤에 붙는다.
+    이런 낱말이 이름으로 잡히거나(`주무관`이 작성자인 문서는 본문의 주무관이 모두 이름 후보가 되었다) 이름과 함께
+    통째로 잡혔다(`교수요원 김민수`, 2026-11-15). 흔한 낱말 사전(NOT_NAMES)은 여기서 보지 않는다: 사람 이름일 수도
+    있는 낱말(이수자)이 있어, 이름 칸에서는 '검토'로 남긴다."""
+    base = word[:-1] if len(word) > 2 and word.endswith("님") else word
+    if _is_title(base) or base in _ROLE_WORDS:
+        return True
+    if len(base) == 3 and base[0] in SURNAMES:
+        return False  # 세 글자 이름일 수 있다(`김요원`)
+    return base.endswith(ROLE_SUFFIXES)
+
+
+def trim_name_span(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """이름이라고 받은 자리(AI 탐지)에서 앞뒤의 직위와 역할어를 뗀 범위(`주무관 김민수` → `김민수`).
+    그런 낱말뿐이면 None. text는 fold()한 글."""
+    at = _skip_titles(text, start, end)
+    if at is None:
+        return None
+    while True:
+        m = _TRAILING_WORD.search(text, at, end)
+        if not (m and is_role_word(m.group(1))):
+            break
+        end = m.start()
+    return (at, end) if at < end and not is_role_word(text[at:end]) else None
+
+
 def _role_name_ok(name: str) -> bool:
     # 조사를 떼면 이름이 아닌 말(`위원장은 연수원장이`, `위원은 부원장이`)도 뺀다(2026-11-10).
     # 이름 끝 '은', '이'는 이름일 수도 있어(김하은) 뗀 말이 사전에 있을 때만 뺀다
     bases = {name, strip_josa(name), name[:-1] if name[-1] in "은이" else name}
     return (len(name) >= 3 and looks_like_name(name) and name[-1] not in _JOSA_END
-            and not any(b in NOT_NAMES or _is_title(b) for b in bases))
+            and not any(b in NOT_NAMES or is_role_word(b) for b in bases))
 
 
 def _weak_name_ok(name: str) -> bool:
@@ -410,7 +468,7 @@ def _list_name_ok(name: str) -> bool:
 
 def _short_name_ok(name: str) -> bool:
     """사람 직위 옆의 두 글자 이름(`허준 주무관`)."""
-    return (looks_like_name(name) and not _is_title(name) and name[-1] not in _JOSA_END
+    return (looks_like_name(name) and not is_role_word(name) and name[-1] not in _JOSA_END
             and name not in SHORT_NOT_NAMES)
 
 
@@ -511,12 +569,21 @@ def _address_end(text: str, start: int, end: int) -> int:
     return m.start() if m else end
 
 
-def _skip_titles(text: str, start: int, end: int) -> int | None:
-    """칸 조각 앞의 직위와 결재 날짜(`원장 11/09 박서연`의 원장, 11/09)를 건너뛴 시작점. 조각이 그것뿐이면 None."""
+def _skip_titles(text: str, start: int, end: int, listed: bool = False) -> int | None:
+    """칸 조각 앞의 직위, 역할어, 결재 날짜(`원장 11/09 박서연`의 원장과 11/09, `교수요원 김민수`의 교수요원)를
+    건너뛴 시작점. 조각이 그것뿐이면 None. listed면 쉼표로 이어진 것도 건너뛴다(`참석자: 교장, 교감, 김민수`).
+    흔한 낱말(NOT_NAMES)은 그 뒤가 이름 하나뿐일 때만 건너뛴다(`대표 김민수`. 문장 `다음 기수에도 …`는 아니다)."""
+    word_re = _LEADING_LISTED if listed else _LEADING_WORD
     while start < end:
         m = _LEADING_TITLE.match(text, start, end)
         if not m:
-            return start
+            m = word_re.match(text, start, end)
+            if not m:
+                return start
+            if not is_role_word(m.group(1)):
+                nxt = _LEADING_WORD.match(text, m.end(), end) if m.group(1) in NOT_NAMES else None
+                if not (nxt and nxt.end() == end and _role_name_ok(nxt.group(1))):
+                    return start
         start = m.end()
     return None
 

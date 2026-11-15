@@ -27,6 +27,8 @@ from pathlib import Path
 from privacy_operator.detect.ai.spans import AiSpan, to_findings
 from privacy_operator.detect.dictionaries import ADDRESS, NAME
 from privacy_operator.detect.finding import BY_AI_NER, TIER_REVIEW, Finding
+from privacy_operator.detect.patterns import fold
+from privacy_operator.detect.rules import trim_name_span
 from privacy_operator.reader.blocks import ReadResult
 
 log = logging.getLogger(__name__)
@@ -224,8 +226,15 @@ def find_names(results: list[ReadResult], existing: list[Finding], engine: Schif
         report.blocks += len(batch)
         for (di, b), row in zip(batch, rows):
             for s, e, label, _score in row:
-                if label in CATEGORY:
-                    spans.append(AiSpan(di, b.block_id, s, e, CATEGORY[label]))
+                if label not in CATEGORY:
+                    continue
+                if CATEGORY[label] == NAME:
+                    # 모델은 직위도 이름으로 준다(`주무관님`의 주무관). 규칙과 같은 사전으로 떼어 낸다
+                    span = trim_name_span(fold(b.text), s, e)
+                    if span is None:
+                        continue
+                    s, e = span
+                spans.append(AiSpan(di, b.block_id, s, e, CATEGORY[label]))
         if progress:
             progress(n, len(batches))
     report.spans = len(spans)

@@ -67,6 +67,21 @@ def fake_schift(tmp_path):
     return make
 
 
+def test_titles_the_model_calls_names_are_trimmed_or_dropped():
+    """모델은 직위도 이름으로 준다(`주무관님`의 주무관, 2026-11-15 실제 모델에서 확인). 규칙과 같은 사전으로 거른다."""
+    texts = ["문의는 주무관님께 바랍니다.", "참석: 연구사 박소윤", "안내는 박소윤 주무관", "발표는 한결이 맡는다."]
+
+    class Engine:
+        def detect(self, batch):
+            spans = {"주무관": [texts[0]], "연구사 박소윤": [texts[1]], "박소윤 주무관": [texts[2]], "한결": [texts[3]]}
+            return [[[t.find(w), t.find(w) + len(w), "private_person", 0.9] for w, where in spans.items() if t in where]
+                    for t in batch]
+
+    new, report = find_names([doc(*texts)], [], Engine())
+    assert [(f.block_id, f.raw_value) for f in new] == [("b0001", "박소윤"), ("b0002", "박소윤"), ("b0003", "한결")]
+    assert report.spans == 3  # 직위뿐인 것은 세지 않는다
+
+
 def test_schift_names_and_addresses_start_pending(fake_schift):
     res = doc("이번 연수의 숨은 공로자는 박소윤이다.", "강의실은 한빛로 12 3층이다.", AWARD)
     findings = detect([res])

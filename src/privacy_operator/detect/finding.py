@@ -41,6 +41,7 @@ BY_METADATA = "metadata"  # 문서 속성, 메모 작성자
 BY_GRAY_TEXT = "gray_text"  # 본문 속 기관명, 직급, 나이대
 BY_CONFIRMED = "confirmed_value"  # 사람이 확정한 값을 다른 곳에서 다시 찾음(7단계)
 BY_AI_NER = "ai_schift"  # Schift 모델이 찾은 이름, 주소(9단계)
+BY_MANUAL = "manual"  # 탐지가 놓쳐 사람이 직접 적어 넣은 값을 문서에서 찾음(2026-11-15)
 
 # 승격 근거(escalated_by)
 ESC_NAME_SAME_ROW = "name_same_row"

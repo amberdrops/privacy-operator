@@ -15,9 +15,13 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from privacy_operator.detect.dictionaries import (
+    ADDRESS,
+    EMAIL,
     EXCEPTIONS,
     GRAY_CATEGORIES,
     NAME,
+    OTHER,
+    PHONE,
     NAME_HEADERS,
     NAME_LABELS,
     TOP_SURNAMES,
@@ -29,6 +33,7 @@ from privacy_operator.detect.escalate import escalate
 from privacy_operator.detect.finding import (
     BY_COLUMN_SHAPE,
     BY_CONFIRMED,
+    BY_MANUAL,
     BY_PROPAGATION,
     HINT_EXCEPTION,
     STATUS_PENDING,
@@ -42,13 +47,14 @@ from privacy_operator.detect.patterns import (
     Candidate,
     ValueIndex,
     fold,
+    format_candidates,
     is_spaced_name,
     probe,
     spaced_known,
     value_pattern,
 )
-from privacy_operator.detect.rules import RuleSet, _birth_after_name, _is_title, _weak_name_ok, merge, spaced_names
-from privacy_operator.reader.blocks import CELL, COMMENT, METADATA, Block, ReadResult
+from privacy_operator.detect.rules import RuleSet, _birth_after_name, _weak_name_ok, is_role_word, merge, spaced_names
+from privacy_operator.reader.blocks import CELL, COMMENT, METADATA, Block, Location, ReadResult
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +125,28 @@ def detect(results: list[ReadResult], config: DetectConfig | None = None) -> lis
     return findings
 
 
-def rescan(results: list[ReadResult], findings: list[Finding], sources: list[Finding]) -> list[Finding]:
+MANUAL_CATEGORIES = (NAME, PHONE, EMAIL, ADDRESS, OTHER)  # 직접 넣을 때 고르는 유형
+
+
+def guess_category(value: str) -> str:
+    """직접 적은 값의 유형 짐작: 글자 전체가 번호나 주소 형식이면 그 유형, 짧은 한글이면 이름, 아니면 기타."""
+    text = fold(value.strip())
+    for c in format_candidates(text):
+        if c.start == 0 and c.end == len(text) and c.category in MANUAL_CATEGORIES:
+            return c.category
+    return NAME if re.fullmatch(r"[가-힣]{2,5}|[가-힣](?:[ \t]+[가-힣]){1,4}", text) else OTHER
+
+
+def find_value(results: list[ReadResult], findings: list[Finding], category: str, value: str) -> list[Finding]:
+    """탐지가 놓친 값을 사람이 직접 적었을 때: 그 글자를 모든 문서에서 찾아 새 탐지로 만든다(2026-11-15).
+    확정값 재검색과 같은 방식이다: 이미 탐지가 있는 자리는 건너뛰고, 새 탐지는 '검토' 등급, '대기' 상태다."""
+    source = Finding("", "", "", "", category, value, "", "", 0, 0, Location(), 0, (BY_MANUAL,), TIER_REVIEW,
+                     STATUS_PENDING, default_action(TIER_REVIEW, category))
+    return rescan(results, findings, [source], BY_MANUAL)
+
+
+def rescan(results: list[ReadResult], findings: list[Finding], sources: list[Finding],
+           by: str = BY_CONFIRMED) -> list[Finding]:
     """사람이 확정한 값(sources)을 모든 문서에서 다시 찾는다(7단계 '확정값 자동 재검색').
 
     아직 아무 탐지도 없는 자리만 새 탐지로 만든다. 새 탐지는 '검토' 등급, '대기' 상태다(자동 확정 금지).
@@ -183,7 +210,7 @@ def rescan(results: list[ReadResult], findings: list[Finding], sources: list[Fin
                 if i not in compiled:
                     compiled[i] = value_pattern(src.category, src.raw_value)
                 for m in compiled[i].finditer(folded):
-                    add(Candidate(m.start(), m.end(), src.category, TIER_REVIEW, {BY_CONFIRMED}))
+                    add(Candidate(m.start(), m.end(), src.category, TIER_REVIEW, {by}))
             # 이름인지 몰라 건너뛴 날짜: 확정한 이름(과 방금 다시 찾은 그 이름) 바로 뒤 괄호 속 날짜(`김민수(2026. 3. 1.)`)
             if names:
                 for c in _birth_after_name(folded, names):
@@ -237,7 +264,7 @@ def _whole_name(text: str) -> tuple[int, int] | None:
     start = len(text) - len(text.lstrip())
     end = len(text.rstrip())
     value = text[start:end]
-    if looks_like_name(value) and not _is_title(value):
+    if looks_like_name(value) and not is_role_word(value):
         return start, end
     return next(((s, e) for s, e in spaced_names(text) if (s, e) == (start, end)), None)
 

@@ -100,6 +100,11 @@ MUST = [
     ("담임교사 김민수", [("이름", "김민수")]),
     ("행정지원과 총무팀 김민수", [("이름", "김민수")]),
     ("담임: 김민수", [("이름", "김민수")]),
+    # ---- 이름: 이름표 뒤에 역할어나 직위가 먼저 온 것(2026-11-15)
+    ("강사: 교수요원 정하람", [("이름", "정하람")]),
+    ("담당자: 주무관 박서연", [("이름", "박서연")]),
+    ("참석자: 교장, 교감, 김민수", [("이름", "김민수")]),
+    ("교수요원 김민수가 진행함", [("이름", "김민수")]),
 ]
 
 MUST_NOT = [
@@ -170,6 +175,15 @@ MUST_NOT = [
     ("위원장 (인)", ["위원장"]),
     # ---- 같은 직위 낱말 둘은 조합이 아니다
     ("허준 주무관, 김솔 주무관", ["주무관"]),
+    # ---- 이름표 뒤의 역할어, 직위, 직종 낱말(2026-11-15)
+    ("강사: 교수요원", ["교수요원"]),
+    ("담당자: 보건교사", ["보건교사"]),
+    ("담당자: 주무관님", ["주무관님", "주무관"]),
+    ("참석자: 외부강사, 사회복무요원, 전문상담사", ["외부강사", "사회복무요원", "전문상담사"]),
+    ("참석자: 교장 포함 12명", ["교장", "포함"]),
+    ("참석자: 교사 20명, 학부모 30명", ["교사", "학부모", "20명"]),
+    ("작성자 내부강사", ["내부강사"]),
+    ("주무관님께 문의 바랍니다", ["주무관님", "주무관"]),
 ]
 
 
@@ -490,3 +504,69 @@ def test_spaced_names_count_in_an_unknown_column():
 def test_columns_that_are_not_names(values):
     found = run(table(["번호", "내역"], *[[str(i), v] for i, v in enumerate(values, 1)]))
     assert not _names(found)
+
+
+# ---------------------------------------------------------------- 역할어, 직위는 이름이 아니다(2026-11-15)
+
+ROLE_WORDS = ["교수요원", "주무관", "담당", "담당자", "강사", "주무관님", "선생님", "담임", "교사", "보건교사", "위원",
+              "간사", "학부모", "외부강사", "내부강사", "업무담당", "사회복무요원", "전문상담사", "운영위원장", "학교장"]
+
+
+@pytest.mark.parametrize("header", ["강사", "담당", "담당자", "성명"])
+@pytest.mark.parametrize("word", ROLE_WORDS)
+def test_role_word_in_a_name_column_is_not_a_name(header, word):
+    """연수 시간표의 강사 칸: `교수요원`만 있는 칸은 이름이 아니고, `교수요원 김민수`는 이름만 잡는다."""
+    found = run(table(["과목", header], ["개강식", word], ["강의", f"{word} 김민수"], ["실습", f"이도윤 {word}"],
+                      ["평가", f"박서연({word})"]))
+    assert _names(found) == {"김민수": TIER_CERTAIN, "이도윤": TIER_CERTAIN, "박서연": TIER_CERTAIN}
+
+
+@pytest.mark.parametrize("word", ROLE_WORDS)
+def test_role_word_next_to_a_name_label_cell_is_not_a_name(word):
+    found = run(table(["구분", "내용"], ["성명", word], ["담당", f"{word} 김민수"]))
+    assert _names(found) == {"김민수": TIER_CERTAIN}
+
+
+@pytest.mark.parametrize("word", ROLE_WORDS + ["담당 주무관", "교무부장", "행정실장", "팀장"])
+def test_role_word_as_the_document_author_is_not_a_name(word):
+    """작성자 속성이 `주무관`인 문서: 이름으로 잡으면 본문의 주무관이 모두 이름 후보로 번진다."""
+    from privacy_operator.reader.blocks import METADATA, Block, Location
+
+    author = Block("meta-author", METADATA, word, Location(field="author"))
+    assert not _names(run(author, para(f"문의는 담당 {word}에게 바랍니다. 주무관 회의는 3시입니다.")))
+    author = Block("meta-author", METADATA, f"{word} 김민수", Location(field="author"))
+    assert _names(run(author)) == {"김민수": TIER_CERTAIN}
+
+
+def test_common_word_before_a_single_name_in_a_name_column():
+    found = run(table(["과목", "강사"], ["강의", "대표 김민수"], ["소감", "다음 기수에도 같은 강의가 있으면 좋겠습니다"]))
+    assert _names(found) == {"김민수": TIER_CERTAIN}
+
+
+def test_possible_names_from_the_word_list_stay_review_in_a_name_column():
+    """흔한 낱말 사전에는 사람 이름일 수도 있는 낱말이 있다. 이름 칸에서는 지우지 않고 '검토'로 남긴다."""
+    assert _names(run(table(["순번", "성명"], ["1", "이수자"]))) == {"이수자": TIER_REVIEW}
+
+
+# ---------------------------------------------------------------- 정, 부로 나눈 담당자 열(2026-11-15)
+
+def test_names_under_plain_jeong_and_bu_headers():
+    """제목이 `정`, `부`뿐인 열. 값이 넷이 안 되거나 빈칸이 많은 `부` 열도 본다(열 값 짐작에 기대지 않는다)."""
+    found = run(table(["업무", "정", "부"], ["개인정보 보호", "김민수", "이도윤"], ["정보 보안", "박서연", ""],
+                      ["시설 관리", "최지호", "이도윤"], ["급식", "정하람", "연구부"]))
+    assert _names(found) == dict.fromkeys(["김민수", "이도윤", "박서연", "최지호", "정하람"], TIER_REVIEW)
+
+
+def test_names_under_a_name_header_split_into_jeong_and_bu():
+    """`담당자` 아래를 `정 | 부`로 나눈 두 줄 머리글: 둘 다 담당자 열이다. `정`, `부` 칸은 머리글이다."""
+    from privacy_operator.reader.convert import convert
+
+    def c(text, span=1):
+        return {"text": text, "colSpan": span, "rowSpan": 1}
+
+    cells = [[c("업무"), c("담당자", 2), c("")], [c(""), c("정"), c("부")],
+             [c("개인정보 보호"), c("김민수"), c("이도윤")], [c("정보 보안"), c("박서연"), c("허준")]]
+    raw = {"blocks": [{"type": "table", "pageNumber": 1,
+                       "table": {"rows": 4, "cols": 3, "cells": cells, "hasHeader": True}}]}
+    found = run(convert(raw, "hwpx")[0])
+    assert _names(found) == dict.fromkeys(["김민수", "이도윤", "박서연", "허준"], TIER_CERTAIN)
