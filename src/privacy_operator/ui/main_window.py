@@ -747,7 +747,7 @@ class MainWindow(QMainWindow):
         self._judge(self.workflow.exclude if status == STATUS_CONFIRMED else self.workflow.confirm)
 
     def show_blind_spots(self) -> None:
-        BlindSpotDialog(self.voice, self.workflow.results, self, self.workflow.paths).exec()
+        BlindSpotDialog(self.voice, self.workflow.results, self, self.workflow.paths, self.workflow).exec()
 
     # ---------------------------------------------------------------- 직접 추가
 

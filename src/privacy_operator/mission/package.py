@@ -28,7 +28,7 @@ from privacy_operator.restore.restore import CODE_RE
 from privacy_operator.settings import Settings, validate_paths
 from privacy_operator.writer.blocklist import BlocklistHit, blocklist_hits, check_blocklist
 from privacy_operator.writer.markdown import to_markdown
-from privacy_operator.writer.original import OriginalOutput, write_original
+from privacy_operator.writer.original import MARKDOWN_ONLY, OriginalOutput, write_original
 from privacy_operator.writer.plan import ReplacementPlan
 
 log = logging.getLogger(__name__)
@@ -104,9 +104,10 @@ def build_package(settings: Settings, mission_id: str, docs: list[PseudoDocument
                   book: AliasBook, vault: UnlockedVault, record: ProcessingRecord | None = None,
                   alias_policy: str = "per_mission", now: datetime | None = None,
                   sources: list[Path] | None = None, reader=None,
-                  originals: list[OriginalOutput] | None = None) -> Path:
+                  originals: list[OriginalOutput] | None = None, no_original: set[int] | None = None) -> Path:
     """sources(원본 파일 경로, docs와 같은 순서)와 reader를 주면 원본 형식 사본도 만든다(8단계).
-    원본 형식 사본은 재검사를 통과한 것만 넣고, 결과는 originals에 담는다."""
+    원본 형식 사본은 재검사를 통과한 것만 넣고, 결과는 originals에 담는다.
+    no_original: 사각지대에 개인정보가 있다고 사람이 고른 문서 순번. 그림은 사본에 그대로 들어가므로 마크다운만 보낸다."""
     validate_paths(settings)
     if book.mission_id != mission_id:
         raise PackageError("가명코드 장부의 작전 번호가 다릅니다")
@@ -145,8 +146,11 @@ def build_package(settings: Settings, mission_id: str, docs: list[PseudoDocument
         if sources and reader is not None:
             plan = ReplacementPlan(findings, docs)
             category_of = {f.finding_id: f.category for f in findings}
-            for d, src, (md_name, _, _) in zip(docs, sources, texts):
-                out = write_original(Path(src), d.format, plan, root / "docs", md_name[:-3], reader)
+            for n, (d, src, (md_name, _, _)) in enumerate(zip(docs, sources, texts)):
+                if n in (no_original or ()):
+                    out = OriginalOutput(Path(src).name, MARKDOWN_ONLY)
+                else:
+                    out = write_original(Path(src), d.format, plan, root / "docs", md_name[:-3], reader)
                 out.categories = sorted({category_of[i] for i in out.finding_ids if i in category_of})
                 if not out.ok:
                     # 사본을 넣지 못한 까닭을 처리 기록에 남긴다. 파일은 마크다운 이름으로 적는다(원래 이름에는 값이 있을 수 있다)

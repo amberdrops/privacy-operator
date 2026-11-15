@@ -605,11 +605,16 @@ PREVIEW_SIZE = QSize(420, 440)  # 사각지대 그림 미리 보기 칸. 1080p 1
 class BlindSpotDialog(_Dialog):
     """검사 못 한 영역(사각지대) 목록. paths(원본 파일 경로, results와 같은 순서)를 주면 줄을 골랐을 때 그 자리의
     그림을 오른쪽에 보여 준다(2026-11-15 사용자 요청): PDF는 그 쪽, 엑셀과 HWPX는 파일 속 그림.
-    그림은 메모리에서만 다룬다. 보여 줄 수 없는 것(도형, 차트, HWP 속 그림)은 글로 알린다."""
+    그림은 메모리에서만 다룬다. 보여 줄 수 없는 것(도형, 차트, HWP 속 그림)은 글로 알린다.
 
-    def __init__(self, voice: Voice, results, parent=None, paths=None):
+    marks(작전 흐름)를 주면 오른쪽 아래에 '이 문서는 마크다운 사본만 보내기' 체크 상자를 둔다(2026-11-16 사용자 결정).
+    사각지대의 그림은 원본 형식 사본에 그대로 들어가므로, 사람이 보고 고른 문서는 마크다운 사본만 보낸다. 기본은 꺼져 있다.
+    그림으로 보여 줄 수 없는 줄(도형, 차트)도 고를 수 있다."""
+
+    def __init__(self, voice: Voice, results, parent=None, paths=None, marks=None):
         super().__init__(voice, "blind.details", parent)
         self.setMinimumWidth(680)
+        self.marks = marks
         title = QLabel(voice.t("blind.title", term=voice.t("term.blind_spot")))
         title.setObjectName("Heading")
         self.lay.addWidget(title)
@@ -617,8 +622,9 @@ class BlindSpotDialog(_Dialog):
         self.items.setWordWrap(True)
         for line in blind_spot_lines(voice, results):
             self.items.addItem(line)
-        # 줄마다 (원본 경로, 형식, 사각지대). blind_spot_lines와 같은 순서다
+        # 줄마다 (원본 경로, 형식, 사각지대)와 (문서 순번, 사각지대 순번). blind_spot_lines와 같은 순서다
         self._spots = [(Path(p), res.format, b) for res, p in zip(results, paths or []) for b in res.blind_spots]
+        self._keys = [(d, s) for d, res in enumerate(results[:len(paths or [])]) for s in range(len(res.blind_spots))]
         self._index, self._count = 0, 0
         if self._spots:
             self.setMinimumWidth(1020)
@@ -645,6 +651,10 @@ class BlindSpotDialog(_Dialog):
             pager.addStretch(1)
             pager.addWidget(self.next_btn)
             side.addLayout(pager)
+            self.pii = self.binder.text(QCheckBox(), "blind.markdown_only", tip=False)
+            self.pii.setMinimumHeight(44)
+            self.pii.toggled.connect(self._mark)
+            side.addWidget(self.pii)
             body.addLayout(side)
             self.lay.addLayout(body)
             self.items.currentRowChanged.connect(self._select)
@@ -684,6 +694,17 @@ class BlindSpotDialog(_Dialog):
         else:
             self.preview.setPixmap(QPixmap())
             self.preview.setText(self.voice.t("blind.preview_none"))
+        # 문서 단위로 고른다. 그림으로 보여 줄 수 없는 줄에서도 고를 수 있다(작전 개시 뒤에는 바꾸지 않는다)
+        doc = self._keys[self.items.currentRow()][0]
+        self.pii.setVisible(self.marks is not None)
+        self.pii.setEnabled(self.marks is not None and not getattr(self.marks, "mission_id", None))
+        self.pii.blockSignals(True)
+        self.pii.setChecked(bool(self.marks and self.marks.markdown_only(doc)))
+        self.pii.blockSignals(False)
+
+    def _mark(self, on: bool) -> None:
+        if self.marks is not None:
+            self.marks.set_markdown_only(self._keys[self.items.currentRow()][0], on)
 
 
 class BusyDialog(_Dialog):

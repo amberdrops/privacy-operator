@@ -116,6 +116,7 @@ class MissionWorkflow:
         self.originals: list[OriginalOutput] = []  # 원본 형식 사본 결과(작전 개시 뒤)
         self.ai_scanned: set[int] = set()  # AI 탐지를 마친 문서 순번
         self.manual: list[tuple[str, str]] = []  # 사람이 직접 넣은 값 (유형, 글자)
+        self.markdown_docs: set[int] = set()  # 사각지대에 개인정보가 있다고 사람이 고른 문서(마크다운 사본만)
         self._preview: dict[str, str] = {}
 
     def close(self) -> None:
@@ -185,6 +186,7 @@ class MissionWorkflow:
         self.originals = []
         self.ai_scanned = set()
         self.manual = []
+        self.markdown_docs = set()
         self._preview = {}
 
     def _detect(self) -> None:
@@ -390,6 +392,17 @@ class MissionWorkflow:
     def blind_spots(self) -> list[BlindSpot]:
         return [b for r in self.results for b in r.blind_spots]
 
+    # ---------------------------------------------------------------- 마크다운 사본만 보낼 문서(2026-11-16)
+    # 사각지대(그림, 스캔한 쪽, 도형) 속 글자는 검사하지 못하고, 원본 형식 사본에는 그대로 들어간다. 사람이 사각지대를
+    # 보고 개인정보가 있다고 고른 문서는 마크다운 사본만 보낸다. 기본은 사본을 만든다(사용자 결정: 공문마다 로고가 있다).
+
+    def markdown_only(self, doc: int) -> bool:
+        return doc in self.markdown_docs
+
+    def set_markdown_only(self, doc: int, on: bool) -> None:
+        if not self.mission_id and 0 <= doc < len(self.results):
+            (self.markdown_docs.add if on else self.markdown_docs.discard)(doc)
+
     def step(self) -> int:
         """지금 단계 번호(STEPS 순서)."""
         if self.package_path:
@@ -417,7 +430,8 @@ class MissionWorkflow:
             self.originals = []
             self.package_path = build_package(self.settings, mission_id, docs, self.findings, book, self.vault,
                                               record=record, alias_policy=policy, sources=self.paths,
-                                              reader=self._reader, originals=self.originals)
+                                              reader=self._reader, originals=self.originals,
+                                              no_original=set(self.markdown_docs))
         except BaseException:
             # 송출이 멈추면(차단 목록 등) 번호와 대응표를 반납한다. 남겨 두면 복원 목록에 빈 작전이 생기고
             # 다시 개시할 때 번호가 -02로 넘어간다(2026-11-08)

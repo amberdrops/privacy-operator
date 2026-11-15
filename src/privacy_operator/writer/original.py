@@ -36,6 +36,7 @@ OK = "ok"
 LEFTOVER = "leftover"  # 확정한 값이 남음
 ERROR = "error"  # 만들다가 오류
 UNSUPPORTED = "unsupported"
+MARKDOWN_ONLY = "markdown_only"  # 사각지대에 개인정보가 있다고 사람이 고른 문서. 그림은 사본에 그대로 들어가므로 만들지 않는다
 
 
 @dataclass

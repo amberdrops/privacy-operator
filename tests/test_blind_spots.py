@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import zipfile
@@ -189,3 +190,101 @@ def test_blind_spot_dialog_shows_the_picture_of_the_chosen_line(reader, scanned_
     plain = BlindSpotDialog(Voice("plain"), results)
     qtbot.addWidget(plain)
     assert not hasattr(plain, "preview")
+
+# ---------------------------------------------------------------- 마크다운 사본만 보낼 문서 고르기(2026-11-16)
+
+def _workflow(tmp_path, reader):
+    from privacy_operator.alias.vault import Vault
+    from privacy_operator.settings import Settings
+    from privacy_operator.workflow import MissionWorkflow
+
+    settings = Settings(vault_dir=str(tmp_path / "금고"), workspace_dir=str(tmp_path / "작전실"))
+    return MissionWorkflow(settings, Vault(settings.vault_path).create("image-pii-password"), lambda: reader)
+
+
+def _start(wf):
+    from privacy_operator.detect.finding import STATUS_PENDING
+    from privacy_operator.mission.package import ProcessingRecord
+
+    wf.exclude([f.finding_id for f in wf.findings if f.exclude_hint])
+    while wf.counts().pending:
+        wf.confirm([f.finding_id for f in wf.findings if f.review_status == STATUS_PENDING])
+    return wf.start(ProcessingRecord())
+
+
+def test_documents_with_blind_spots_still_get_original_copies_by_default(reader, scanned_pdf, tmp_path):
+    """그림이 있다고 사본을 빼지 않는다(사용자 결정: 공문마다 로고가 있다). 스캔한 쪽도 그림일 뿐이라 짐작하지 않는다."""
+    from privacy_operator.writer.original import OK
+
+    wf = _workflow(tmp_path, reader)
+    wf.add_files([scanned_pdf])
+    assert not wf.markdown_only(0)
+    _start(wf)
+    assert [o.status for o in wf.originals] == [OK]
+
+
+def test_chosen_documents_go_out_as_markdown_only(reader, scanned_pdf, tmp_path):
+    """사람이 사각지대를 보고 고른 문서는 마크다운 사본만 보낸다. 까닭은 완료 창과 처리 기록에 남는다."""
+    from privacy_operator.writer.original import MARKDOWN_ONLY, OK
+
+    logo = tmp_path / "로고공문.hwpx"
+    shutil.copy(SAMPLES / "연수운영계획_샘플.hwpx", logo)
+    _with_pictures(logo, "BinData/", {"image1.png": _png("기관 로고")})
+    wf = _workflow(tmp_path, reader)
+    wf.add_files([scanned_pdf, logo])
+    wf.set_markdown_only(0, True)
+    wf.set_markdown_only(1, True)
+    wf.set_markdown_only(1, False)  # 다시 풀 수 있다
+    wf.set_markdown_only(7, True)  # 없는 문서는 무시한다
+    package = _start(wf)
+    assert [(o.source_name, o.status) for o in wf.originals] == [("스캔섞임.pdf", MARKDOWN_ONLY), ("로고공문.hwpx", OK)]
+    names = sorted(p.name for p in (package / "docs").iterdir())
+    assert not any(n.endswith(".pdf") for n in names) and any(n.endswith(".hwpx") for n in names)
+    assert sum(n.endswith(".md") for n in names) == 2  # 마크다운 사본은 둘 다 있다
+    record = json.loads((wf.settings.vault_path / wf.mission_id / "log.json").read_text(encoding="utf-8"))
+    assert [(s["format"], s["reason"]) for s in record["originals_skipped"]] == [("pdf", "markdown_only")]
+    wf.set_markdown_only(0, False)  # 개시한 뒤에는 바꾸지 않는다
+    assert wf.markdown_only(0)
+    wf.reset()
+    assert not wf.markdown_docs
+
+
+def test_blind_spot_dialog_chooses_markdown_only_per_document(reader, scanned_pdf, tmp_path, qtbot):
+    """사각지대 줄을 고르고 체크 상자를 켜면 그 문서가 마크다운 사본만 나간다. 그림으로 보여 줄 수 없는 줄에서도 된다."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from privacy_operator.ui.dialogs import BlindSpotDialog
+    from privacy_operator.ui.style import stylesheet
+    from privacy_operator.ui.theme import load_theme
+
+    QApplication.instance().setStyleSheet(stylesheet(load_theme("pink")))
+    wb = Workbook()
+    ws = wb.active
+    for row in (("이름", "점수"), ("가나다", 3)):
+        ws.append(row)
+    chart = BarChart()
+    chart.add_data(Reference(ws, min_col=2, min_row=1, max_row=2), titles_from_data=True)
+    ws.add_chart(chart, "D2")
+    xlsx = tmp_path / "차트.xlsx"
+    wb.save(xlsx)
+    wf = _workflow(tmp_path, reader)
+    wf.add_files([scanned_pdf, xlsx])
+    dialog = BlindSpotDialog(Voice("mission"), wf.results, None, wf.paths, wf)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+    assert dialog.pii.isVisible() and not dialog.pii.isChecked()  # 기본은 꺼져 있다
+    qtbot.mouseClick(dialog.pii, Qt.MouseButton.LeftButton)
+    assert wf.markdown_docs == {0}
+    shots = Path(__file__).resolve().parent / "screenshots"
+    dialog.grab().save(str(shots / "blind_preview_markdown_only.png"))
+    dialog.items.setCurrentRow(1)  # 같은 문서의 다른 줄도 켜져 보인다
+    assert dialog.pii.isChecked()
+    dialog.items.setCurrentRow(2)  # 차트: 그림은 못 보여 주지만 고를 수는 있다
+    assert dialog.preview.pixmap().isNull() and dialog.pii.isVisible() and not dialog.pii.isChecked()
+    qtbot.mouseClick(dialog.pii, Qt.MouseButton.LeftButton)
+    assert wf.markdown_docs == {0, 1}
+    dialog.items.setCurrentRow(0)
+    qtbot.mouseClick(dialog.pii, Qt.MouseButton.LeftButton)
+    assert wf.markdown_docs == {1}
