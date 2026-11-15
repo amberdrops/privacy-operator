@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -36,7 +36,10 @@ from privacy_operator.alias.crypto import MIN_PASSWORD_LENGTH, WrongPassword
 from privacy_operator.detect.ai.schift import is_installed as schift_installed
 from privacy_operator.detect.ai.schift import remove_model, setup_available
 from privacy_operator.detect.ai.schift_setup import CANCELLED, ModelSetup
+from privacy_operator.detect.detector import MANUAL_CATEGORIES, guess_category
+from privacy_operator.detect.dictionaries import NAME
 from privacy_operator import BETA, __version__
+from privacy_operator.reader import preview
 from privacy_operator.settings import PROJECT_ROOT, Settings, SettingsError, validate_paths
 from privacy_operator.ui.theme import available_themes, load_theme
 from privacy_operator.ui.review import SegButton
@@ -190,6 +193,52 @@ class Choice(QWidget):
 
     def currentData(self) -> str:  # noqa: N802  펼침 목록과 같은 이름
         return self.values[max(0, self.group.checkedId())]
+
+
+class AddValueDialog(_Dialog):
+    """탐지가 놓친 값을 직접 넣는다(2026-11-15). 글자 한 칸과 유형 고르기뿐이다.
+    submit(글자, 유형) -> (새로 올린 탐지, 문서에 그 글자가 있는가). 찾은 것이 없으면 까닭을 보여 주고 창을 닫지 않는다."""
+
+    def __init__(self, voice: Voice, submit: Callable, parent=None):
+        super().__init__(voice, "action.add_value_title", parent)
+        self.submit, self.added = submit, []
+        self.lay.addWidget(self.label("action.add_value_text"))
+        self.value = QLineEdit()
+        self.lay.addWidget(self.value)
+        self.kind = Choice([(c, c) for c in MANUAL_CATEGORIES], NAME)
+        row = QHBoxLayout()
+        row.addWidget(self.kind)
+        row.addStretch(1)
+        self.lay.addLayout(row)
+        self._picked = False  # 유형을 손으로 골랐으면 글자를 고쳐도 짐작으로 바꾸지 않는다
+        self.kind.group.idClicked.connect(self._pick)
+        self.value.textChanged.connect(self._guess)
+        self.error = QLabel()
+        self.error.setObjectName("Error")
+        self.error.setWordWrap(True)
+        self.lay.addWidget(self.error)
+        ok, _ = self.buttons("action.add_value_ok", "pw.cancel")
+        ok.clicked.connect(self._ok)
+
+    def _pick(self, _index: int) -> None:
+        self._picked = True
+
+    def _guess(self, text: str) -> None:
+        self.error.clear()
+        if not self._picked and len(text.strip()) >= 2:
+            self.kind.group.button(MANUAL_CATEGORIES.index(guess_category(text))).setChecked(True)
+
+    def _ok(self) -> None:
+        value = self.value.text().strip()
+        if len(value) < 2:
+            self.error.setText(self.voice.t("action.add_value_short"))
+            return
+        added, present = self.submit(value, self.kind.currentData())
+        if not added:
+            self.error.setText(self.voice.t("action.add_value_taken" if present else "action.add_value_none"))
+            return
+        self.added = added
+        self.accept()
 
 
 def license_file(root: Path = PROJECT_ROOT) -> Path:
@@ -550,10 +599,15 @@ class ModelSetupDialog(_Dialog):
         self.stop()
 
 
-class BlindSpotDialog(_Dialog):
-    """검사 못 한 영역(사각지대) 목록."""
+PREVIEW_SIZE = QSize(420, 440)  # 사각지대 그림 미리 보기 칸. 1080p 150% 배율(쓸 수 있는 높이 약 670)에서도 창이 넘치지 않게
 
-    def __init__(self, voice: Voice, results, parent=None):
+
+class BlindSpotDialog(_Dialog):
+    """검사 못 한 영역(사각지대) 목록. paths(원본 파일 경로, results와 같은 순서)를 주면 줄을 골랐을 때 그 자리의
+    그림을 오른쪽에 보여 준다(2026-11-15 사용자 요청): PDF는 그 쪽, 엑셀과 HWPX는 파일 속 그림.
+    그림은 메모리에서만 다룬다. 보여 줄 수 없는 것(도형, 차트, HWP 속 그림)은 글로 알린다."""
+
+    def __init__(self, voice: Voice, results, parent=None, paths=None):
         super().__init__(voice, "blind.details", parent)
         self.setMinimumWidth(680)
         title = QLabel(voice.t("blind.title", term=voice.t("term.blind_spot")))
@@ -563,7 +617,40 @@ class BlindSpotDialog(_Dialog):
         self.items.setWordWrap(True)
         for line in blind_spot_lines(voice, results):
             self.items.addItem(line)
-        self.lay.addWidget(self.items)
+        # 줄마다 (원본 경로, 형식, 사각지대). blind_spot_lines와 같은 순서다
+        self._spots = [(Path(p), res.format, b) for res, p in zip(results, paths or []) for b in res.blind_spots]
+        self._index, self._count = 0, 0
+        if self._spots:
+            self.setMinimumWidth(1020)
+            body = QHBoxLayout()
+            body.setSpacing(16)
+            body.addWidget(self.items, 1)
+            side = QVBoxLayout()
+            self.preview = QLabel()
+            self.preview.setObjectName("Preview")
+            self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.preview.setWordWrap(True)
+            self.preview.setFixedSize(PREVIEW_SIZE)
+            side.addWidget(self.preview)
+            pager = QHBoxLayout()  # 그림이 여러 개일 때만 보인다
+            self.prev_btn, self.next_btn = self.button("blind.prev"), self.button("blind.next")
+            self.page_label = QLabel()
+            self.page_label.setObjectName("Guide")
+            for b, step in ((self.prev_btn, -1), (self.next_btn, 1)):
+                b.setObjectName("TextButton")
+                b.clicked.connect(lambda _=False, s=step: self._turn(s))
+            pager.addWidget(self.prev_btn)
+            pager.addStretch(1)
+            pager.addWidget(self.page_label)
+            pager.addStretch(1)
+            pager.addWidget(self.next_btn)
+            side.addLayout(pager)
+            body.addLayout(side)
+            self.lay.addLayout(body)
+            self.items.currentRowChanged.connect(self._select)
+            self.items.setCurrentRow(0)
+        else:
+            self.lay.addWidget(self.items)
         self.lay.addWidget(self.label("blind.note", "Guide"))
         row = QHBoxLayout()
         row.addStretch(1)
@@ -571,6 +658,32 @@ class BlindSpotDialog(_Dialog):
         close.clicked.connect(self.accept)
         row.addWidget(close)
         self.lay.addLayout(row)
+
+    def _select(self, row: int) -> None:
+        if not 0 <= row < len(self._spots):
+            return
+        self._index, self._count = 0, preview.image_count(*self._spots[row])
+        self._show()
+
+    def _turn(self, step: int) -> None:
+        self._index = (self._index + step) % max(1, self._count)
+        self._show()
+
+    def _show(self) -> None:
+        many = self._count > 1
+        for w in (self.prev_btn, self.next_btn, self.page_label):
+            w.setVisible(many)
+        self.page_label.setText(self.voice.t("blind.count", i=self._index + 1, n=self._count))
+        picture = QPixmap()
+        data = preview.image_bytes(*self._spots[self.items.currentRow()], self._index) if self._count else None
+        if data and picture.loadFromData(data):
+            room = self.preview.contentsRect().size() * self.devicePixelRatioF()
+            picture = picture.scaled(room, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            picture.setDevicePixelRatio(self.devicePixelRatioF())
+            self.preview.setPixmap(picture)
+        else:
+            self.preview.setPixmap(QPixmap())
+            self.preview.setText(self.voice.t("blind.preview_none"))
 
 
 class BusyDialog(_Dialog):
@@ -617,9 +730,17 @@ class RunDoneDialog(_Dialog):
             self.lay.addWidget(self.label("run.originals", n=len(made)))
         if any(o.source_name.lower().endswith(".hwp") for o in made):
             self.lay.addWidget(self.label("run.hwp_note", "Guide"))
+        if any(o.source_name.lower().endswith(".xls") for o in made):
+            self.lay.addWidget(self.label("run.xls_note", "Guide"))
+        # 사본을 넣지 못한 문서는 까닭을 한 줄씩 적는다(2026-11-15: 같은 문구만 나와 원인을 찾기 어려웠다)
+        for o in failed:
+            places = ", ".join(o.places[:3]) + (voice.t("run.originals_more", n=len(o.places) - 3)
+                                                if len(o.places) > 3 else "")
+            self.lay.addWidget(self.label(f"run.originals_{o.status}", "Error", name=o.source_name,
+                                          what=", ".join(o.categories) or voice.t("run.originals_value"),
+                                          places=places, detail=o.detail))
         if failed:
-            self.lay.addWidget(self.label("run.originals_failed", "Error",
-                                          names=", ".join(o.source_name for o in failed)))
+            self.lay.addWidget(self.label("run.originals_failed", "Guide"))
         self.copied = QLabel()
         self.copied.setObjectName("Guide")
         self.lay.addWidget(self.copied)

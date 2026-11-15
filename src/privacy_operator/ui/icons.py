@@ -28,6 +28,10 @@ _SVG = {
     "restore": '<g fill="none" stroke="{c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
                '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></g>',
     "plus": '<path d="M12 5v14M5 12h14" fill="none" stroke="{c}" stroke-width="2" stroke-linecap="round"/>',
+    # 직접 추가: 연필
+    "pencil": '<g fill="none" stroke="{c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+              '<path d="M4 20l1.2-4.6L16.4 4.2a2 2 0 0 1 2.9 0l.5.5a2 2 0 0 1 0 2.9L8.6 18.8z"/>'
+              '<path d="M14.5 6.1l3.4 3.4"/></g>',
 }
 
 

@@ -18,6 +18,7 @@ from privacy_operator.alias.vault import UnlockedVault
 from privacy_operator.detect import detect, escalate, rescan
 from privacy_operator.detect.ai.schift import SchiftEngine, SchiftError, SchiftReport, find_names, is_installed
 from privacy_operator.detect.ai.spans import is_ai
+from privacy_operator.detect.detector import find_value
 from privacy_operator.detect.dictionaries import GRAY_CATEGORIES
 from privacy_operator.detect.finding import (
     ACTION_ALIAS,
@@ -114,6 +115,7 @@ class MissionWorkflow:
         self.removed_categories: list[str] = []
         self.originals: list[OriginalOutput] = []  # 원본 형식 사본 결과(작전 개시 뒤)
         self.ai_scanned: set[int] = set()  # AI 탐지를 마친 문서 순번
+        self.manual: list[tuple[str, str]] = []  # 사람이 직접 넣은 값 (유형, 글자)
         self._preview: dict[str, str] = {}
 
     def close(self) -> None:
@@ -182,6 +184,7 @@ class MissionWorkflow:
         self.mission_id, self.package_path, self.removed_categories = None, None, []
         self.originals = []
         self.ai_scanned = set()
+        self.manual = []
         self._preview = {}
 
     def _detect(self) -> None:
@@ -191,6 +194,11 @@ class MissionWorkflow:
         self.findings = detect(self.results) if self.results else []
         self._restore_verdicts(self.findings, before)
         self.findings += ai
+        # 사람이 직접 넣은 값도 다시 찾는다(새로 넣은 문서에서도). 판정은 이어 붙인다
+        for category, value in self.manual:
+            added = find_value(self.results, self.findings, category, value)
+            self._restore_verdicts(added, before)
+            self.findings += added
         # 확정값 재검색으로 생겼던 탐지도 다시 만들고 판정을 이어 붙인다
         added = rescan(self.results, self.findings, self._confirmed())
         self._restore_verdicts(added, before)
@@ -255,6 +263,35 @@ class MissionWorkflow:
         escalate(self.findings)  # AI가 찾은 것에도 조합 규칙을 같은 방식으로 적용한다
         self._refresh_preview()
         return run.findings
+
+    # ---------------------------------------------------------------- 직접 추가
+
+    def add_manual(self, value: str, category: str) -> tuple[list[Finding], bool]:
+        """탐지가 놓친 값을 사람이 직접 적어 넣는다(2026-11-15 사용자 결정). 그 글자를 모든 문서에서 찾아
+        '대기'로 올린다. 확정은 따로 한다(자동 확정 금지). 이미 탐지가 있는 자리는 건너뛴다.
+        돌려주는 것: (새로 올린 탐지, 문서에 그 글자가 있는가). 원문 값은 로그에 쓰지 않는다."""
+        value = value.strip()
+        if self.mission_id or len(value) < 2 or category in GRAY_CATEGORIES:
+            return [], False
+        pattern = value_pattern(category, value)
+        if not any(pattern.search(fold(b.text)) for res in self.results for b in res.blocks):
+            return [], False
+        added = find_value(self.results, self.findings, category, value)
+        if added:
+            if (category, value) not in self.manual:
+                self.manual.append((category, value))
+            self.findings += added
+            escalate(self.findings)
+            self._refresh_preview()
+        log.info("직접 추가: 유형=%s 새 탐지 %d건", category, len(added))
+        return added, True
+
+    def block_text(self, f: Finding) -> str | None:
+        """탐지가 있는 블록의 원문 전체(화면의 원문 보기용). 원문이므로 로그에 쓰지 않는다."""
+        index = int(f.file_id[1:]) - 1 if f.file_id[1:].isdigit() else -1
+        if not 0 <= index < len(self.results):
+            return None
+        return next((b.text for b in self.results[index].blocks if b.block_id == f.block_id), None)
 
     # ---------------------------------------------------------------- 판정
 

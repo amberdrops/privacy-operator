@@ -439,6 +439,99 @@ def test_start_mission_runs_without_a_dialog_and_records_defaults(win, qtbot):
     win.done_dialog.close()
 
 
+def test_done_dialog_says_why_a_copy_was_left_out(qtbot):
+    """사본을 넣지 못한 문서는 까닭을 한 줄씩 적는다(2026-11-15: 같은 문구만 나와 원인을 찾기 어려웠다).
+    옛 엑셀을 XLSX로 바꿔 넣었을 때는 값만 담았다고 알린다."""
+    from PySide6.QtWidgets import QLabel
+
+    from privacy_operator.ui.dialogs import RunDoneDialog
+    from privacy_operator.ui.style import stylesheet
+    from privacy_operator.writer.original import ERROR, LEFTOVER, OK, OriginalOutput
+
+    QApplication.instance().setStyleSheet(stylesheet(load_theme("pink")))  # 실제 앱처럼 스타일시트를 먼저(app.py)
+    originals = [
+        OriginalOutput("참가자명단.xls", OK, path=Path("참가자명단.xlsx")),
+        OriginalOutput("만족도조사.xlsx", LEFTOVER, places=["B2 칸", "C2 칸", "xl/workbook.xml", "D2 칸", "E2 칸"],
+                       finding_ids=["D01-0001"], categories=["생년월일", "전화"]),
+        OriginalOutput("강사계약.pdf", ERROR, detail="IndexError"),
+    ]
+    for voice in ("plain", "mission"):
+        dialog = RunDoneDialog(Voice(voice), "M-20261115-01", Path("."), "규칙", originals)
+        qtbot.addWidget(dialog)
+        dialog.show()
+        qtbot.waitExposed(dialog)
+        texts = [w.text() for w in dialog.findChildren(QLabel)]
+        assert any("만족도조사.xlsx" in t and "생년월일, 전화 값이 남았습니다(B2 칸, C2 칸, xl/workbook.xml 외 2곳)" in t
+                   for t in texts)
+        assert any("강사계약.pdf" in t and "IndexError" in t for t in texts)
+        assert any("XLS 문서는 값만 담은 XLSX" in t for t in texts)
+        assert not _small_texts(dialog)
+        shots = Path(__file__).resolve().parent / "screenshots"
+        shots.mkdir(exist_ok=True)
+        dialog.grab().save(str(shots / f"done_dialog_reasons_{voice}.png"))
+        dialog.close()
+
+
+def test_add_value_dialog_finds_a_missed_value_by_real_clicks(win, qtbot):
+    """직접 추가: 단추를 눌러 창을 띄우고, 글자를 적고, 찾기를 누른다(창을 바꿔 끼우지 않고 진짜로 누른다).
+    찾은 자리만 표에 모이고 골라져 있어, 보고 바로 확정할 수 있다."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QPushButton
+
+    win.load_files([HWPX])
+    before = len(win.workflow.findings)
+    assert win.add_value_btn.isVisible()
+    qtbot.mouseClick(win.add_value_btn, Qt.MouseButton.LeftButton)
+    dialog = win.add_dialog
+    qtbot.waitUntil(dialog.isVisible, timeout=3000)
+    assert not _small_texts(dialog)
+    shots = Path(__file__).resolve().parent / "screenshots"
+    shots.mkdir(exist_ok=True)
+    ok = next(b for b in dialog.findChildren(QPushButton) if b.objectName() == "Primary")
+
+    dialog.value.setText("없는글자열")  # QTest의 글자 입력은 한글을 받지 못한다(프로세스가 끝난다)
+    qtbot.mouseClick(ok, Qt.MouseButton.LeftButton)
+    assert dialog.isVisible() and dialog.error.text() == win.voice.t("action.add_value_none")
+    dialog.grab().save(str(shots / "add_value_dialog.png"))
+
+    dialog.value.setText("연수")  # 샘플 본문에 여러 번 나오는 낱말(탐지되지 않는다)
+    assert dialog.kind.currentData() == "이름"  # 짧은 한글은 이름으로 짐작한다
+    qtbot.mouseClick(dialog.kind.group.button(4), Qt.MouseButton.LeftButton)  # 기타로 바꾼다
+    qtbot.mouseClick(ok, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=3000)
+    new = win.workflow.findings[before:]
+    assert new and all((f.category, f.review_status, f.detected_by) == ("기타", STATUS_PENDING, ("manual",)) for f in new)
+    assert set(win.review.visible_ids()) == win.review.model.checked == {f.finding_id for f in new}
+    assert win.guide.text() == win.voice.t("guide.added", n=len(new))
+    win.grab().save(str(shots / "add_value_result.png"))
+    win.confirm_btn.click()
+    assert all(f.review_status == "확정" for f in win.workflow.findings[before:before + len(new)])
+
+
+def test_hovering_the_reason_shows_the_original_text(win):
+    """'위치와 근거' 칸의 풍선 도움말: 그 글 전체를 보여 주고 탐지값을 굵게 밑줄 친다(2026-11-15 사용자 요청).
+    문맥 칸은 예전처럼 그 칸의 글만 보여 준다(사용자 결정)."""
+    from PySide6.QtCore import Qt
+
+    from privacy_operator.ui.review import CONTEXT, WHERE, origin_tip
+
+    win.load_files([HWPX])
+    model = win.review.model
+    row, f = next((r, model.finding(r)) for r in range(model.rowCount())
+                  if model.finding(r).location.table_index is None and not model.finding(r).block_id.startswith("meta"))
+    block = win.workflow.block_text(f)
+    assert block[f.start:f.end] == f.raw_value
+    tip = model.data(model.index(row, WHERE), Qt.ItemDataRole.ToolTipRole)
+    assert f"<b><u>{f.raw_value}</u></b>" in tip and f.filename in tip
+    assert model.data(model.index(row, CONTEXT), Qt.ItemDataRole.ToolTipRole) == f.context
+    # 긴 글은 탐지값 앞뒤만, 꺾쇠는 글자로
+    long = "가" * 400 + " <김민수> " + "나" * 400
+    f2 = type(f)("D01-0001", "D01", "a.hwpx", "hwpx", "이름", "김민수", "", "b0001", 402, 405, f.location, 0,
+                 ("label",), "확실", STATUS_PENDING, "가명처리")
+    tip = origin_tip(f2, long, win.voice)
+    assert "…" + "가" * 10 in tip and "&lt;<b><u>김민수</u></b>&gt;" in tip and "가" * 300 not in tip
+
+
 def test_restore_page_finds_a_code_name(win):
     """귀환 화면의 코드명 찾기: 적으면 '작전 번호  코드명 = 원문 값'을 화면에만 보여 준다. 값은 지어낸 것이다."""
     v = win.workflow.vault

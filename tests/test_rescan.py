@@ -185,3 +185,49 @@ def test_a_file_that_breaks_the_reader_is_a_failed_file_not_a_dead_thread(tmp_pa
     read, failed = wf.read_files([Path("a.hwpx"), Path("b.xlsx"), Path("c.pdf")], progress=lambda i, n: seen.append(i))
     assert [p.name for p, _ in read] == ["a.hwpx", "c.pdf"]
     assert [(p.name, code) for p, code in failed] == [("b.xlsx", "READ_FAILED")] and seen == [1, 2, 3]
+
+
+# ---------------------------------------------------------------- 직접 추가(2026-11-15)
+
+def test_manual_value_is_found_everywhere_and_starts_pending(wf):
+    """탐지가 놓친 값을 직접 적으면 모든 문서에서 찾아 '대기'로 올린다. 확정은 사람이 따로 한다."""
+    from privacy_operator.detect.finding import BY_MANUAL
+
+    _add(wf, doc(para("도하늘이 어제 말한 대로 진행한다. 도하늘 의견 반영."), name="a.hwpx"),
+         doc(para("참고: 가도하늘빛"), name="b.pdf"))
+    assert not wf.findings  # 규칙은 단서가 없어 못 찾는다
+    added, present = wf.add_manual("  도하늘 ", "이름")
+    assert present and [(f.file_id, f.start) for f in added] == [("D01", 0), ("D01", 20), ("D02", 5)]
+    assert all((f.review_status, f.tier, f.detected_by) == (STATUS_PENDING, TIER_REVIEW, (BY_MANUAL,)) for f in added)
+    assert wf.counts().pending == 3 and not wf.can_start()
+    assert wf.add_manual("도하늘", "이름") == ([], True)  # 이미 올린 자리는 다시 올리지 않는다
+    assert wf.add_manual("없는글자", "이름") == ([], False)
+    assert wf.add_manual("도", "이름") == ([], False)  # 한 글자는 받지 않는다
+
+
+def test_manual_value_goes_out_as_a_code_and_never_as_text(wf):
+    _add(wf, doc(para("도하늘이 어제 말한 대로 진행한다."), name="a.hwpx"))
+    added, _ = wf.add_manual("도하늘", "이름")
+    wf.confirm([f.finding_id for f in added])
+    package = wf.start(ProcessingRecord())
+    text = next((package / "docs").glob("*.md")).read_text(encoding="utf-8")
+    assert "[이름-01]이 어제" in text and "도하늘" not in text
+
+
+def test_manual_values_survive_adding_files_and_reach_the_new_file(wf):
+    _add(wf, doc(para("도하늘이 어제 말한 대로 진행한다."), name="a.hwpx"))
+    [one], _ = wf.add_manual("도하늘", "기타")
+    wf.confirm([one.finding_id])
+    _add(wf, doc(para("도하늘 의견"), name="b.pdf"))
+    assert [(f.filename, f.category, f.review_status) for f in wf.findings] == [
+        ("a.hwpx", "기타", STATUS_CONFIRMED), ("b.pdf", "기타", STATUS_PENDING)]
+
+
+@pytest.mark.parametrize("value,category", [
+    ("010-0000-0012", "전화"), ("a.b@example.kr", "이메일"), ("경기도 가상시 예시로 12-3", "주소"),
+    ("도하늘", "이름"), ("홍 길 동", "이름"), ("하늘반 지킴이", "기타"), ("Sky Do", "기타"), ("900101-1000000", "기타"),
+])
+def test_guessed_category_of_a_typed_value(value, category):
+    from privacy_operator.detect.detector import guess_category
+
+    assert guess_category(value) == category

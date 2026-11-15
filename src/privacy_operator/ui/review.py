@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import (
     QAbstractTableModel,
     QEvent,
@@ -94,6 +96,30 @@ def where_text(f: Finding, voice: Voice) -> str:
     return f"{place_text(f, voice)}, " + ", ".join(dict.fromkeys(reasons))
 
 
+ORIGIN_SPAN = 240  # 원문 보기에서 탐지값 앞뒤로 보여 주는 글자 수
+
+
+def origin_tip(f: Finding, text: str | None, voice: Voice) -> str:
+    """'위치와 근거' 칸에 마우스를 올리면 뜨는 원문 보기(2026-11-15 사용자 요청. 문맥 칸은 예전처럼 그 칸의 글만).
+    파일과 자리와 근거 한 줄, 그 아래 탐지가 있는 글(문단이나 칸) 전체. 탐지값은 굵게 + 밑줄, 긴 글은 앞뒤만.
+    표 칸이면 같은 줄의 다른 칸도 보여 준다. 화면에만 뜬다(원문이므로 로그에 쓰지 않는다)."""
+    start, end = f.start, f.end
+    if text is None or text[start:end] != f.raw_value:  # 블록을 못 찾으면 문맥 한 줄로
+        text = f.context or f.raw_value
+        start = max(0, text.find(f.raw_value))
+        end = start + len(f.raw_value)
+    lo, hi = max(0, start - ORIGIN_SPAN), min(len(text), end + ORIGIN_SPAN)
+    esc = html.escape
+    body = (("…" if lo else "") + esc(text[lo:start]) + f"<b><u>{esc(text[start:end])}</u></b>" + esc(text[end:hi])
+            + ("…" if hi < len(text) else "")).replace("\n", "<br>")
+    parts = [esc(f"{f.filename}  {where_text(f, voice)}"), body]
+    if f.location.table_index is not None and f.context and f.context != text:
+        parts.append(esc(f.context))  # 같은 줄
+    if f.note:
+        parts.append(esc(f.note))  # AI가 댄 까닭
+    return "<qt>" + "".join(f"<p>{p}</p>" for p in parts) + "</qt>"
+
+
 def _tail_fit(text: str, fm: QFontMetrics, width: int) -> str:
     """text의 뒷부분만 width에 맞게 남긴다. 줄였으면 앞에 '…'."""
     if fm.horizontalAdvance(text) <= width:
@@ -160,9 +186,11 @@ class FindingsModel(QAbstractTableModel):
                 return where_text(f, self.voice)
             if col == CODE:
                 return f.alias_code or self.workflow.code_preview(f.finding_id) or "—"
-        if role == Qt.ItemDataRole.ToolTipRole and col in (CONTEXT, WHERE):
-            text = self.data(index)
-            return f"{text}\n{f.note}" if col == CONTEXT and f.note else text  # AI가 댄 까닭
+        if role == Qt.ItemDataRole.ToolTipRole and col == WHERE:
+            return origin_tip(f, self.workflow.block_text(f), self.voice)  # 원문 보기(근거 칸에서만, 2026-11-15)
+        if role == Qt.ItemDataRole.ToolTipRole and col == CONTEXT:
+            text = self.data(index)  # 칸에서 잘린 글 전체
+            return f"{text}\n{f.note}" if f.note else text  # AI가 댄 까닭
         return None
 
     def flags(self, index):
@@ -787,14 +815,14 @@ class ReviewPage(QWidget):
             proxy.sort(VALUE if on else -1, Qt.SortOrder.AscendingOrder)
         self.table._anchor = self.gray_table._anchor = None  # 줄 번호가 바뀌었다(Shift로 이어 고르기의 시작점)
 
-    def show_ids(self, ids: list[str]) -> None:
-        """송출이 멈춘 뒤: 남은 자리만 낱낱이 본다. '모두 보기'로 풀린다."""
+    def show_ids(self, ids: list[str], label_key: str = "view.leftovers") -> None:
+        """송출이 멈춘 뒤: 남은 자리만 낱낱이 본다. 직접 추가한 뒤: 방금 찾은 자리만 본다. '모두 보기'로 풀린다."""
         if self.group_btn.isChecked():
             self.group_btn.setChecked(False)
         self.status_buttons.button(0).setChecked(True)
         self.set_status(None)
         self.main_proxy.set_filter(value=None, ids=set(ids))
-        self.value_label.setText(self.voice.t("view.leftovers", n=len(ids)))
+        self.value_label.setText(self.voice.t(label_key, n=len(ids)))
         self.value_label.setVisible(True)
         self.show_all_btn.setVisible(True)
         self.sync_all_check()

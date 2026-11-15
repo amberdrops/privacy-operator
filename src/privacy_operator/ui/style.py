@@ -470,6 +470,8 @@ def stylesheet(t: Theme) -> str:
     QProgressBar {{ border: none; border-radius: 4px; background: {t['band_line']}; }}
     QProgressBar::chunk {{ border-radius: 4px; background: {t['accent']}; }}
     QLabel#Error {{ color: {t['accent_deep']}; font-size: 15px; font-weight: {semi}; }}
+    QLabel#Preview {{ background: {t['paper_head']}; border: 1px solid {t['line']}; border-radius: 6px;
+                      color: {t['ink_sub']}; font-size: 15px; padding: 8px; }}
     QToolTip {{ font-size: 15px; color: {t['ink']}; background: {t['paper']}; border: 1px solid {t['metal']}; }}
     {_asset_rules(t)}
     """

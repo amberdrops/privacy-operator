@@ -41,7 +41,14 @@ from privacy_operator.mission.package import DEFAULT_PURPOSE, ProcessingRecord
 from privacy_operator.reader.read import SUPPORTED
 from privacy_operator.settings import Settings, VaultSession, save_settings
 from privacy_operator.ui import icons
-from privacy_operator.ui.dialogs import BlindSpotDialog, BusyDialog, PasswordDialog, RunDoneDialog, SettingsDialog
+from privacy_operator.ui.dialogs import (
+    AddValueDialog,
+    BlindSpotDialog,
+    BusyDialog,
+    PasswordDialog,
+    RunDoneDialog,
+    SettingsDialog,
+)
 from privacy_operator.ui.restore_page import RestorePage
 from privacy_operator.ui.review import ReviewPage
 from privacy_operator.ui.style import font, smooth_pixmap, stylesheet
@@ -73,7 +80,7 @@ def needs_maximize(window: QSize, available: QSize) -> bool:
 
 
 def expand_folders(paths: list[Path]) -> list[Path]:
-    """끌어다 놓은 것 중 폴더는 그 안(하위 폴더 포함)의 HWP, HWPX, PDF, XLSX로 펼친다.
+    """끌어다 놓은 것 중 폴더는 그 안(하위 폴더 포함)의 HWP, HWPX, PDF, XLSX, XLS로 펼친다.
     한글, 엑셀이 열려 있을 때 생기는 잠금 파일(~$로 시작)은 뺀다."""
     out: list[Path] = []
     for p in paths:
@@ -365,6 +372,11 @@ class MainWindow(QMainWindow):
         self.add_btn.setObjectName("Nav")
         self.add_btn.clicked.connect(self.pick_files)
         v.addWidget(self.add_btn)
+        # 탐지가 놓친 값을 직접 넣기(2026-11-15). 위 거르기 띠는 좁은 창에서 자리가 없어 여기에 둔다
+        self.add_value_btn = self.binder.text(QPushButton(), "action.add_value")
+        self.add_value_btn.setObjectName("Nav")
+        self.add_value_btn.clicked.connect(self.add_value)
+        v.addWidget(self.add_value_btn)
         rule = QFrame()
         rule.setObjectName("PanelRule")
         rule.setFixedHeight(1)
@@ -533,6 +545,8 @@ class MainWindow(QMainWindow):
         self.review.sync_all_check()
         self.run_btn.setEnabled(self.workflow.can_start() and not busy)
         self.add_btn.setEnabled(not busy)
+        self.add_value_btn.setVisible(bool(self.workflow.results) and not self.workflow.mission_id)
+        self.add_value_btn.setEnabled(on_review)
         ai_btn = self.review.ai_btn
         ai_btn.setVisible(self.workflow.ai_enabled() and bool(self.workflow.results) and not self.workflow.mission_id)
         ai_btn.setEnabled(self.ai is not None or (self.workflow.can_find_ai() and self.loader is None))
@@ -594,7 +608,7 @@ class MainWindow(QMainWindow):
         self.blind_icon.setPixmap(icons.pixmap("warning", t["accent"], 20, background=t["paper_head"]))
         self.lock.setPixmap(icons.pixmap("lock_open", t["label"], 18))  # '금고 열림' 글자와 맞춰 열린 자물쇠
         # 검토 보드는 지금 화면 표시라 아이콘 없이 글자만(2026-11-08). 복원, 파일 더 넣기는 할 일이라 아이콘을 둔다
-        for b, name in ((self.nav[RESTORE], "restore"), (self.add_btn, "plus")):
+        for b, name in ((self.nav[RESTORE], "restore"), (self.add_btn, "plus"), (self.add_value_btn, "pencil")):
             b.setIcon(QIcon(icons.pixmap(name, t["ink"], 20)))
             b.setIconSize(QSize(20, 20))
         self.settings_btn.setIcon(QIcon(icons.pixmap("gear", t["ink_sub"], 18)))
@@ -638,7 +652,7 @@ class MainWindow(QMainWindow):
 
     def pick_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(self, self.voice.t("drop.dialog"), "",
-                                                "HWP, HWPX, PDF, XLSX (*.hwp *.hwpx *.pdf *.xlsx)")
+                                                "HWP, HWPX, PDF, XLSX, XLS (*.hwp *.hwpx *.pdf *.xlsx *.xls)")
         if files:
             self.load_files_async([Path(f) for f in files])
 
@@ -733,7 +747,25 @@ class MainWindow(QMainWindow):
         self._judge(self.workflow.exclude if status == STATUS_CONFIRMED else self.workflow.confirm)
 
     def show_blind_spots(self) -> None:
-        BlindSpotDialog(self.voice, self.workflow.results, self).exec()
+        BlindSpotDialog(self.voice, self.workflow.results, self, self.workflow.paths).exec()
+
+    # ---------------------------------------------------------------- 직접 추가
+
+    def add_value(self) -> None:
+        """탐지가 놓친 값을 적어 넣는 창을 띄운다(2026-11-15). 찾은 자리는 대기로 올라온다."""
+        if self.workflow.mission_id or not self.workflow.results or self.loader or self.ai or self.starter:
+            return
+        self.add_dialog = AddValueDialog(self.voice, self.workflow.add_manual, self)
+        self.add_dialog.accepted.connect(self._value_added)
+        self.add_dialog.open()
+
+    def _value_added(self) -> None:
+        """새로 찾은 자리만 표에 모으고 골라 둔다. 보고 바로 확정할 수 있게(확정은 사람이 한다)."""
+        ids = [f.finding_id for f in self.add_dialog.added]
+        self.notice = self.voice.t("guide.added", n=len(ids))
+        self.refresh()
+        self.review.show_ids(ids, "view.added")
+        self.review.model.set_checked(ids, True)
 
     # ---------------------------------------------------------------- AI로 더 찾기(9단계, 선택)
 
